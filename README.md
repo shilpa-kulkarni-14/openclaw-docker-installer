@@ -25,6 +25,98 @@ That's it. 3 minutes to a fully hardened OpenClaw installation.
 
 ---
 
+## What Makes This Beginner-Friendly
+
+If you've never used OpenClaw, a terminal, or even know what an API key is — this installer is designed for you.
+
+### No prerequisites to worry about
+
+You don't need to install Docker, Node.js, or anything else first. The installer detects what's missing and installs it for you — using whatever package manager your system already has (Homebrew on Mac, apt on Ubuntu, etc.). If you don't have a package manager at all, it installs one.
+
+### No config files to edit
+
+The traditional OpenClaw setup asks you to manually edit JSON config files, create `.env` files, and wire up environment variables. This installer replaces all of that with simple prompts:
+
+```
+  Enter your Anthropic API key (sk-ant-...): ▊
+  Enter your OpenAI API key (optional, Enter to skip): ▊
+```
+
+That's all you're asked. Everything else — gateway config, file permissions, credential encryption — happens automatically behind the scenes.
+
+### No security knowledge required
+
+You don't need to know what "binding to localhost" means or why plaintext API keys are dangerous. The installer applies every security best practice by default:
+
+- Your API keys are encrypted, not saved as plain text
+- Your agent only runs on your machine (not exposed to the internet)
+- Each skill is sandboxed so it can't access your other credentials
+- File permissions are locked down so only you can read them
+
+If you're an experienced developer, you can audit all of this. If you're not, just know it's handled.
+
+### Guided channel setup
+
+When you run `--hackathon` mode, you see a numbered menu of every chat platform OpenClaw supports:
+
+```
+  Select channels to enable:
+  (Enter numbers separated by spaces, or 'a' for all, 's' for Slack only)
+
+     1) Slack                        Team chat & chat-ops
+     2) Discord                      Community servers & bots
+     3) Telegram                     Personal & group messaging
+     4) WhatsApp                     Personal messaging (via WhatsApp Business API)
+     5) Microsoft Teams              Enterprise collaboration
+    ...
+
+  Select [s]: 1 2
+```
+
+After you pick, the installer tells you exactly where to get the tokens you need:
+
+```
+  ✓  Enabled: Slack
+  ✓  Enabled: Discord
+  ℹ  Slack: Create a Slack App at api.slack.com/apps → get Bot Token + App Token
+  ℹ  Discord: Create app at discord.com/developers → get Bot Token
+```
+
+No guessing. No digging through docs.
+
+### Simple commands after install
+
+Instead of remembering long commands with environment variables, you get short aliases:
+
+| What you want to do | Old way | New way |
+|---|---|---|
+| Start the agent | `ANTHROPIC_API_KEY="sk-ant-..." openclaw gateway --force` | `oc-start` |
+| Check if things are secure | Manually inspect file permissions | `oc-audit` |
+| Load API keys into your terminal | `source ~/.openclaw/.env` (plaintext!) | `oc-secrets` |
+| Remove everything cleanly | Manually delete files, Docker images, env entries | `./install.sh --uninstall` |
+
+### Clear error messages
+
+If something goes wrong, the installer tells you what happened and what to do — not a cryptic stack trace:
+
+```
+  ✗  Node.js installation failed. Check log: /tmp/openclaw-install-20260315.log
+```
+
+Every operation is logged to a timestamped file so you (or someone helping you) can debug it.
+
+### Dry-run for the cautious
+
+Not sure what the installer will do to your machine? Preview first:
+
+```bash
+./install.sh --dry-run
+```
+
+This shows every action the installer *would* take, without actually doing anything. Safe to run as many times as you want.
+
+---
+
 ## Quick Start
 
 ### Option 1: Clone and run
