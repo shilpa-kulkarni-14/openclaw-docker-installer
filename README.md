@@ -117,6 +117,108 @@ This shows every action the installer *would* take, without actually doing anyth
 
 ---
 
+## What Makes This Secure (Explained Simply)
+
+Security can feel intimidating, but it doesn't have to be. Here's what this installer protects you from — and how — in plain English.
+
+### 🔐 Your API keys are encrypted, not saved as readable text
+
+**The risk:** By default, OpenClaw saves your Anthropic and OpenAI API keys in a plain text file (`~/.openclaw/.env`). That means anyone who can access your computer — a roommate, a malware script, a stolen laptop — can read your keys, use your account, and run up your bill.
+
+**What we do:** Instead of saving keys in a text file, the installer stores them in your operating system's built-in vault:
+
+| Your system | Where keys are stored | Think of it like... |
+|---|---|---|
+| Mac | macOS Keychain | The same vault that stores your WiFi passwords and website logins |
+| Linux with desktop | GNOME Keyring or KWallet | Your desktop's built-in password manager |
+| Linux server / minimal | GPG or OpenSSL encrypted file | A locked safe that only opens with your machine's fingerprint |
+
+Even if someone copies the encrypted file to another computer, it won't decrypt — because the encryption key is derived from *your specific machine's* unique ID.
+
+### 🏠 Your agent only talks to your computer
+
+**The risk:** When OpenClaw starts its gateway (the part that listens for messages), it can accidentally listen on `0.0.0.0` — which means *any device on your network* (or the internet, if you're on a server) can talk to your agent. At a hackathon on public WiFi, that means the person next to you could send commands to your agent.
+
+**What we do:** The installer forces the gateway to listen on `127.0.0.1` (localhost) only. This is like putting your agent in a room with no doors to the outside — it only responds to requests from your own machine. It also generates a 64-character random auth token, so even local requests need a password.
+
+### 🧱 Skills can't snoop on each other
+
+**The risk:** OpenClaw skills are scripts that run on your machine. Without sandboxing, a Slack skill could read your `~/.aws/credentials`, your SSH keys, or even the Anthropic API key stored in the OpenClaw config. A malicious or buggy community skill could steal everything.
+
+**What we do:** The installer creates a sandbox policy (`skill-policy.json`) that acts like a set of rules for what skills are allowed to do:
+
+```
+  ❌  Can't read OpenClaw's own config or secret files
+  ❌  Can't read your SSH keys (~/.ssh/)
+  ❌  Can't read your AWS credentials (~/.aws/credentials)
+  ❌  Can't reach cloud metadata endpoints (169.254.169.254)
+       → This prevents a sneaky attack called SSRF where a script
+         asks the cloud "give me the server's credentials"
+  ❌  Can't see your full environment variables
+  ✅  Can only see PATH, HOME, TERM, and LANG — the bare minimum to function
+```
+
+### 🔒 File permissions are locked down
+
+**The risk:** On Linux and Mac, files have permission settings that control who can read them. By default, config files might be readable by any user on the system. On a shared machine (college lab, work laptop, hackathon loaner), another user could read your files.
+
+**What we do:** Every sensitive file and folder is set to owner-only access:
+
+```
+  ~/.openclaw/           → 700 (only you can enter this folder)
+  ~/.openclaw/*.json     → 600 (only you can read config files)
+  ~/.openclaw/.secrets/  → 700 (only you can access the secret vault)
+  ~/.openclaw/*.sh       → 700 (only you can run the scripts)
+```
+
+The numbers `700` and `600` are Unix permissions. `700` means "owner can do everything, nobody else can do anything." `600` means "owner can read and write, nobody else can do anything." You don't need to memorize this — the installer sets it all automatically.
+
+### 🧹 Clean uninstall means actually clean
+
+**The risk:** With Docker, "uninstalling" leaves behind orphaned volumes, dangling images, stale containers, and environment variables scattered across your shell config. With manual installs, you forget to delete the `.env` file with your API key in it.
+
+**What we do:** `./install.sh --uninstall` removes:
+- API keys from your Keychain/Keyring (not just the files — the actual vault entries)
+- The `~/.openclaw` directory (after confirmation)
+- The `openclaw` npm package
+- Shell aliases (`oc-start`, `oc-audit`, etc.) from your `.zshrc`/`.bashrc`/fish config
+
+Nothing is left behind. Your machine is exactly as it was before.
+
+### 📊 You can verify it yourself
+
+After installation, the security scorecard tells you exactly what's protected:
+
+```
+  Security Scorecard
+  ┌──────────────────────────────────────┬────────┐
+  │ OpenClaw installed                   │  ✓     │
+  │ Credentials encrypted                │  ✓     │
+  │ Config file permissions 600          │  ✓     │
+  │ Directory permissions 700            │  ✓     │
+  │ Gateway bound to localhost           │  ✓     │
+  │ Gateway auth token set               │  ✓     │
+  │ Skill sandbox policy                 │  ✓     │
+  │ Secure launcher script               │  ✓     │
+  └──────────────────────────────────────┴────────┘
+  Score: 8/8 — HARDENED
+```
+
+And anytime later, run `oc-audit` to re-check. If something has changed (a permission got loosened, a config was modified), it tells you.
+
+### TL;DR — What are you actually protected from?
+
+| Threat | Without this installer | With this installer |
+|---|---|---|
+| Someone reads your API keys | Keys in plain text file — trivial to steal | Encrypted in OS vault, machine-bound |
+| Someone on your WiFi talks to your agent | Gateway open to the network | Localhost-only + auth token |
+| A malicious skill steals your AWS/SSH creds | Full access to your filesystem | Sandboxed — can't read sensitive paths |
+| Another user on a shared machine reads your config | Default file permissions are too open | Owner-only (700/600) |
+| You forget to clean up after uninstalling | Orphaned files, keys still on disk | Full cleanup including vault entries |
+| Cloud metadata SSRF attack | Skills can reach 169.254.169.254 | Blocked by sandbox policy |
+
+---
+
 ## Quick Start
 
 ### Option 1: Clone and run
