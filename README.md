@@ -552,6 +552,64 @@ This installer exists so the next hackathon starts with building, not debugging 
 
 ---
 
+## Known Limitations & Honest Risks
+
+No setup is 100% risk-free. Here's what this installer **doesn't** protect you from — explained honestly.
+
+### ⚠️ Your API keys are in memory while the agent runs
+
+When you run `oc-start`, the encrypted keys get decrypted and loaded into the running process's memory. Any malware already on your machine with admin/root access can read process memory. The installer protects keys *at rest* (on disk), not *in use* (in RAM).
+
+> Think of it like: The safe is locked, but when you take the jewelry out to wear it, someone can still snatch it off your neck.
+
+### ⚠️ You're still trusting the skills you install
+
+The sandbox blocks skills from reading your SSH keys and AWS credentials — but a skill *still runs code on your machine*. A cleverly written malicious skill could:
+- Make network requests to exfiltrate data it *can* access
+- Log your conversations or prompts
+- Use allowed paths for unintended purposes
+
+The sandbox limits the blast radius, but it's not a true container or VM. It's policy-based, not hardware-enforced.
+
+> Think of it like: You gave the babysitter rules ("don't open the safe"), but they're still inside your house.
+
+### ⚠️ macOS Keychain unlocks when you log in
+
+On Mac, the Keychain is unlocked for the entire login session. Any app running as your user can request Keychain items (you'll get a prompt the first time, but you might click "Always Allow" without thinking). Once allowed, any process running as you can silently read those keys.
+
+> Think of it like: Your vault auto-unlocks when you sit at your desk. Anyone who sits in your chair has access.
+
+### ⚠️ The installer itself runs as you
+
+When you run `./install.sh`, it has your full user permissions. You're trusting that the script does what it says. This is true of *any* software you install — but worth acknowledging. (That's why we provide `--dry-run` and the code is open source and auditable.)
+
+### ⚠️ Localhost doesn't protect against local malware
+
+Binding to `127.0.0.1` stops *other devices on the network* from reaching your agent. But any malware already on your machine can still talk to `localhost:3000`. The auth token helps, but if malware can read your process environment, it can read the token too.
+
+### ⚠️ No protection against physical access
+
+If someone has your unlocked laptop, they can run `oc-secrets`, read the Keychain, or just open a terminal. Full disk encryption (FileVault on Mac, LUKS on Linux) helps — but that's outside this installer's scope.
+
+### What we handle vs. what's still on you
+
+| Layer | What we handle | What's still on you |
+|---|---|---|
+| **Keys on disk** | ✅ Encrypted in OS vault | ⚠️ Keys in memory while running |
+| **Network exposure** | ✅ Localhost + auth token | ⚠️ Local malware can still reach localhost |
+| **Skill isolation** | ✅ Policy-based sandboxing | ⚠️ Not a true VM — clever skills can still act up |
+| **File access** | ✅ Owner-only permissions (700/600) | ⚠️ Any process running as your user can still read them |
+| **Physical access** | ❌ Not our scope | ⚠️ Use FileVault/LUKS + lock your screen |
+| **Malware on your machine** | ❌ Not our scope | ⚠️ Use antivirus, don't install sketchy software |
+
+### The honest summary
+
+This installer takes you from **"front door wide open"** to **"locked doors, alarm system, cameras."** But it's still *your house* — if someone is already inside (malware), or you hand them the keys (physical access), no lock helps.
+
+It's **dramatically better** than the default OpenClaw setup. It's **not a replacement** for basic computer hygiene: keep your OS updated, use full disk encryption, don't install random software, and lock your screen when you walk away.
+
+---
+
 ## Contributing
 
 1. Fork the repo
