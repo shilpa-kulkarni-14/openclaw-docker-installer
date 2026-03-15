@@ -11,7 +11,7 @@
 #   ./install.sh [--uninstall] [--hackathon] [--skip-credentials] [--verbose]
 #
 # Flags:
-#   --hackathon         Pre-install Slack plugin + common skills, skip optional config
+#   --hackathon         Interactive channel selector (Slack, Discord, Teams, etc.) + fast defaults
 #   --uninstall         Cleanly remove OpenClaw and all config
 #   --skip-credentials  Skip API key prompts (configure later)
 #   --verbose           Show detailed output
@@ -148,7 +148,7 @@ usage() {
 Usage: ./install.sh [OPTIONS]
 
 Options:
-  --hackathon         Quick setup for hackathon environments
+  --hackathon         Interactive channel selector (25+ channels) + fast defaults
   --uninstall         Remove OpenClaw and all configuration
   --skip-credentials  Skip API key prompts
   --verbose, -v       Show detailed output
@@ -1007,21 +1007,157 @@ FISH
 }
 
 setup_hackathon_mode() {
-  info "${BOLD}Hackathon mode:${RESET} Enabling Slack plugin + fast defaults..."
+  info "${BOLD}Hackathon mode:${RESET} Configuring channels + fast defaults..."
 
   if dry_run "Setup hackathon mode"; then return 0; fi
 
-  # Enable Slack plugin
+  select_channels
+}
+
+# ── Supported Channels ──────────────────────────────────────────────────────
+# All 25+ channels supported by OpenClaw
+
+SUPPORTED_CHANNELS=(
+  "slack:Slack:Team chat & chat-ops"
+  "discord:Discord:Community servers & bots"
+  "telegram:Telegram:Personal & group messaging"
+  "whatsapp:WhatsApp:Personal messaging (via WhatsApp Business API)"
+  "msteams:Microsoft Teams:Enterprise collaboration"
+  "google-chat:Google Chat:Google Workspace messaging"
+  "signal:Signal:Encrypted private messaging"
+  "matrix:Matrix:Decentralized, self-hosted chat"
+  "irc:IRC:Classic internet relay chat"
+  "mattermost:Mattermost:Self-hosted Slack alternative"
+  "webchat:WebChat:Browser-based chat widget"
+  "bluebubbles:BlueBubbles (iMessage):iMessage bridge for non-Apple devices"
+  "imessage:iMessage (Legacy):Native macOS iMessage"
+  "twitch:Twitch:Live streaming chat"
+  "line:LINE:Popular in Japan/SE Asia"
+  "feishu:Feishu (Lark):ByteDance enterprise messaging"
+  "nostr:Nostr:Decentralized social protocol"
+  "nextcloud-talk:Nextcloud Talk:Self-hosted video & chat"
+  "synology-chat:Synology Chat:NAS-based team chat"
+  "tlon:Tlon (Urbit):Urbit-based messaging"
+  "zalo:Zalo:Popular in Vietnam"
+  "zalo-personal:Zalo Personal:Personal Zalo messaging"
+  "macos:macOS Native:System-level macOS integration"
+  "ios-android:iOS/Android:Mobile app companion"
+)
+
+select_channels() {
+  echo ""
+  echo -e "  ${BOLD}Select channels to enable:${RESET}"
+  echo -e "  ${DIM}(Enter numbers separated by spaces, or 'a' for all, 's' for Slack only)${RESET}"
+  echo ""
+
+  local i=1
+  for entry in "${SUPPORTED_CHANNELS[@]}"; do
+    local id name desc
+    IFS=':' read -r id name desc <<< "$entry"
+    printf "    ${CYAN}%2d${RESET}) %-28s ${DIM}%s${RESET}\n" "$i" "$name" "$desc"
+    i=$((i + 1))
+  done
+
+  echo ""
+  local selection
+  read -rp "  Select [s]: " selection
+  selection="${selection:-s}"
+
+  local selected_ids=()
+
+  if [[ "$selection" == "a" ]] || [[ "$selection" == "all" ]]; then
+    for entry in "${SUPPORTED_CHANNELS[@]}"; do
+      local id
+      IFS=':' read -r id _ _ <<< "$entry"
+      selected_ids+=("$id")
+    done
+  elif [[ "$selection" == "s" ]] || [[ "$selection" == "slack" ]]; then
+    selected_ids=("slack")
+  else
+    # Parse space-separated numbers
+    for num in $selection; do
+      if [[ "$num" =~ ^[0-9]+$ ]] && [[ "$num" -ge 1 ]] && [[ "$num" -le ${#SUPPORTED_CHANNELS[@]} ]]; then
+        local entry="${SUPPORTED_CHANNELS[$((num - 1))]}"
+        local id
+        IFS=':' read -r id _ _ <<< "$entry"
+        selected_ids+=("$id")
+      else
+        warn "Invalid selection: $num (skipping)"
+      fi
+    done
+  fi
+
+  if [[ ${#selected_ids[@]} -eq 0 ]]; then
+    warn "No channels selected. You can enable them later via ${BOLD}openclaw configure${RESET}"
+    return 0
+  fi
+
+  # Enable selected channels in openclaw.json
   local config_file="$OPENCLAW_DIR/openclaw.json"
   if [[ -f "$config_file" ]] && command_exists jq; then
     local tmp_file
     tmp_file="$(mktemp)"
-    jq '.plugins.entries.slack.enabled = true' "$config_file" > "$tmp_file" && mv "$tmp_file" "$config_file"
+    local jq_filter=". "
+
+    for id in "${selected_ids[@]}"; do
+      jq_filter+="| .plugins.entries.\"${id}\".enabled = true "
+    done
+
+    jq "$jq_filter" "$config_file" > "$tmp_file" && mv "$tmp_file" "$config_file"
     chmod 600 "$config_file"
   fi
 
-  success "Hackathon mode configured — Slack plugin enabled"
-  info "Next: Run ${BOLD}openclaw configure${RESET} to connect your Slack workspace"
+  # Print enabled channels
+  echo ""
+  for id in "${selected_ids[@]}"; do
+    # Find display name
+    for entry in "${SUPPORTED_CHANNELS[@]}"; do
+      local eid ename
+      IFS=':' read -r eid ename _ <<< "$entry"
+      if [[ "$eid" == "$id" ]]; then
+        success "Enabled: ${BOLD}${ename}${RESET}"
+        break
+      fi
+    done
+  done
+
+  echo ""
+  info "Next: Run ${BOLD}openclaw configure${RESET} to connect your channels"
+  info "Each channel needs its own tokens/credentials — the configure wizard will guide you"
+  echo ""
+
+  # ── Channel-specific hints ──
+  for id in "${selected_ids[@]}"; do
+    case "$id" in
+      slack)
+        info "${DIM}Slack: Create a Slack App at api.slack.com/apps → get Bot Token + App Token${RESET}"
+        ;;
+      discord)
+        info "${DIM}Discord: Create app at discord.com/developers → get Bot Token${RESET}"
+        ;;
+      telegram)
+        info "${DIM}Telegram: Message @BotFather → /newbot → get HTTP API token${RESET}"
+        ;;
+      whatsapp)
+        info "${DIM}WhatsApp: Set up via Meta Business Suite → WhatsApp Business API${RESET}"
+        ;;
+      msteams)
+        info "${DIM}Teams: Register a bot in Azure → Bot Framework → get App ID + Password${RESET}"
+        ;;
+      google-chat)
+        info "${DIM}Google Chat: Create a Chat app in Google Cloud Console → service account key${RESET}"
+        ;;
+      signal)
+        info "${DIM}Signal: Requires signal-cli or signald running locally${RESET}"
+        ;;
+      matrix)
+        info "${DIM}Matrix: Need homeserver URL + access token (Element → Settings → Help)${RESET}"
+        ;;
+      mattermost)
+        info "${DIM}Mattermost: Create a bot account → get personal access token${RESET}"
+        ;;
+    esac
+  done
 }
 
 # ============================================================================

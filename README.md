@@ -41,11 +41,13 @@ cd openclaw-secure-installer
 curl -fsSL https://raw.githubusercontent.com/shilpa-kulkarni-14/openclaw-secure-installer/main/install.sh | bash
 ```
 
-### Hackathon mode (fast, pre-configures Slack)
+### Hackathon mode (interactive channel selector + fast defaults)
 
 ```bash
 ./install.sh --hackathon
 ```
+
+This launches an interactive channel picker supporting all 25+ OpenClaw channels — Slack, Discord, Telegram, Teams, WhatsApp, and more.
 
 ### Preview without making changes
 
@@ -95,6 +97,43 @@ Installs Node.js 22+, jq, and curl using your system's native package manager. I
 ### Phase 3: Install OpenClaw
 
 Installs OpenClaw via `npm install -g openclaw@latest`. If already installed, prompts to upgrade.
+
+### Supported Channels (25+)
+
+With `--hackathon` mode, the installer presents an interactive channel picker. All channels supported by OpenClaw are available:
+
+| # | Channel | Description |
+|---|---|---|
+| 1 | **Slack** | Team chat & chat-ops |
+| 2 | **Discord** | Community servers & bots |
+| 3 | **Telegram** | Personal & group messaging |
+| 4 | **WhatsApp** | Personal messaging (via WhatsApp Business API) |
+| 5 | **Microsoft Teams** | Enterprise collaboration |
+| 6 | **Google Chat** | Google Workspace messaging |
+| 7 | **Signal** | Encrypted private messaging |
+| 8 | **Matrix** | Decentralized, self-hosted chat |
+| 9 | **IRC** | Classic internet relay chat |
+| 10 | **Mattermost** | Self-hosted Slack alternative |
+| 11 | **WebChat** | Browser-based chat widget |
+| 12 | **BlueBubbles (iMessage)** | iMessage bridge for non-Apple devices |
+| 13 | **iMessage (Legacy)** | Native macOS iMessage |
+| 14 | **Twitch** | Live streaming chat |
+| 15 | **LINE** | Popular in Japan/SE Asia |
+| 16 | **Feishu (Lark)** | ByteDance enterprise messaging |
+| 17 | **Nostr** | Decentralized social protocol |
+| 18 | **Nextcloud Talk** | Self-hosted video & chat |
+| 19 | **Synology Chat** | NAS-based team chat |
+| 20 | **Tlon (Urbit)** | Urbit-based messaging |
+| 21 | **Zalo** | Popular in Vietnam |
+| 22 | **Zalo Personal** | Personal Zalo messaging |
+| 23 | **macOS Native** | System-level macOS integration |
+| 24 | **iOS/Android** | Mobile app companion |
+
+**Channel selection options:**
+- Enter `s` — Slack only (default)
+- Enter `a` — enable all channels
+- Enter `1 2 5` — enable Slack, Discord, and Microsoft Teams
+- Channel-specific setup hints are shown after selection (e.g., where to get bot tokens)
 
 ### Phase 4: Secure Credential Storage
 
@@ -194,7 +233,7 @@ Runs a security scorecard and installs shell aliases:
 
 | Flag | Description |
 |---|---|
-| `--hackathon` | Quick setup — enables Slack plugin, skips optional config |
+| `--hackathon` | Interactive channel selector (25+ channels) + fast defaults |
 | `--uninstall` | Cleanly removes OpenClaw, credentials from Keychain/Keyring, shell aliases |
 | `--skip-credentials` | Skip API key prompts (configure later with `openclaw configure`) |
 | `--verbose` / `-v` | Show detailed output for every operation |
