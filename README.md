@@ -1,6 +1,4 @@
-# OpenClaw Secure Installer
-
-**One command. Any OS. Zero Docker. Encrypted credentials.**
+# OpenClaw  Installer
 
 A cross-platform, security-first installer for [OpenClaw](https://openclaw.ai) that eliminates the Docker complexity and plaintext credential risks that frustrate beginners — especially at hackathons.
 
