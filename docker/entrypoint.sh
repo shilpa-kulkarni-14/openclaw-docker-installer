@@ -323,13 +323,16 @@ if [ ! -f "$CONFIG_FILE" ]; then
   cat > "$CONFIG_FILE" <<EOF
 {
   "meta": {
-    "lastTouchedVersion": "docker-installer-v2",
+    "lastTouchedVersion": "docker-installer-v3",
     "lastTouchedAt": "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
   },
   "gateway": {
     "port": 18789,
-    "bind": "0.0.0.0",
+    "bind": "lan",
     "mode": "local",
+    "controlUi": {
+      "allowedOrigins": ["http://localhost:18789", "http://127.0.0.1:18789"]
+    },
     "auth": {
       "mode": "token",
       "token": "${GATEWAY_TOKEN}"
@@ -394,6 +397,27 @@ else
   fi
 
   echo "  ✓ Gateway config loaded and validated"
+
+  # Migrate legacy config keys (e.g., bind "0.0.0.0" → "lan")
+  # Required since openclaw v2026.2.26
+  if command -v jq >/dev/null 2>&1; then
+    BIND_VAL="$(jq -r '.gateway.bind // ""' "$CONFIG_FILE" 2>/dev/null)"
+    case "$BIND_VAL" in
+      0.0.0.0|""|localhost|127.0.0.1)
+        echo "  ⚠ Migrating legacy gateway.bind \"$BIND_VAL\" → \"lan\"..."
+        TMP="$(mktemp)"
+        jq '.gateway.bind = "lan" | .gateway.controlUi.allowedOrigins = ["http://localhost:18789","http://127.0.0.1:18789"]' "$CONFIG_FILE" > "$TMP" && mv "$TMP" "$CONFIG_FILE"
+        chmod 600 "$CONFIG_FILE"
+        echo "  ✓ Config migrated to new bind mode format"
+        ;;
+      lan|loopback|custom|tailnet|auto)
+        # Already using new format
+        ;;
+      *)
+        echo "  ℹ Unrecognized gateway.bind value: $BIND_VAL (leaving as-is)"
+        ;;
+    esac
+  fi
 fi
 
 # ============================================================================
@@ -599,6 +623,17 @@ echo "  └───────────────────────
 echo ""
 echo "  Next step: Configure your channel (Discord, Telegram, etc.):"
 echo "    docker exec -it openclaw-agent openclaw configure"
+echo ""
+
+# ============================================================================
+# AUTO-MIGRATE: Run doctor --fix to apply any pending compatibility migrations
+# ============================================================================
+
+if command -v openclaw >/dev/null 2>&1; then
+  echo "  Running compatibility migrations..."
+  openclaw doctor --fix 2>/dev/null && echo "  ✓ Migrations applied" || echo "  ℹ No migrations needed (or doctor not available in this version)"
+fi
+
 echo ""
 
 # ============================================================================
