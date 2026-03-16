@@ -18,8 +18,11 @@ FROM node:22-alpine AS builder
 ENV NPM_CONFIG_LOGLEVEL=warn \
     NPM_CONFIG_UPDATE_NOTIFIER=false
 
-RUN npm install -g openclaw@latest \
-  && npm cache clean --force
+# Install git — required by some openclaw npm dependencies that use git:// URLs
+RUN apk add --no-cache git \
+  && npm install -g openclaw@latest \
+  && npm cache clean --force \
+  && apk del git
 
 # ── Stage 2: Runtime ────────────────────────────────────────────────────────
 # Minimal Alpine image with only what's needed to RUN OpenClaw.

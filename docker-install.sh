@@ -1007,8 +1007,22 @@ diagnose_build_failure() {
       docker pull node:22-alpine >> "$LOG_FILE" 2>&1 || true
     fi
 
+  # ── Missing git in builder (spawn git ENOENT) ──
+  elif echo "$log_tail" | grep -qi "spawn git\|syscall.*spawn.*git\|ENOENT.*git"; then
+    fix "npm dependency requires git but git is not in Docker image. Patching Dockerfile..."
+    # Auto-patch the Dockerfile to install git in the builder stage
+    if grep -q "apk add --no-cache git" "$SCRIPT_DIR/Dockerfile" 2>/dev/null; then
+      info "Dockerfile already includes git — clearing build cache..."
+    else
+      # Add git install before npm install in the builder stage
+      sed -i.bak 's|RUN npm install -g openclaw@latest|RUN apk add --no-cache git \&\& npm install -g openclaw@latest|' "$SCRIPT_DIR/Dockerfile" 2>/dev/null || \
+      sed -i '.bak' 's|RUN npm install -g openclaw@latest|RUN apk add --no-cache git \&\& npm install -g openclaw@latest|' "$SCRIPT_DIR/Dockerfile" 2>/dev/null
+      FIXES_APPLIED+=("Patched Dockerfile to include git in builder stage")
+    fi
+    docker builder prune -f >> "$LOG_FILE" 2>&1 || true
+
   # ── npm install failure ──
-  elif echo "$log_tail" | grep -qi "npm ERR\|ERESOLVE\|npm warn\|EBADENGINE"; then
+  elif echo "$log_tail" | grep -qi "npm ERR\|npm error\|ERESOLVE\|npm warn\|EBADENGINE"; then
     if echo "$log_tail" | grep -qi "ERESOLVE"; then
       fix "npm dependency conflict. Retrying with clean state..."
     elif echo "$log_tail" | grep -qi "EBADENGINE"; then
