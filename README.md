@@ -69,7 +69,41 @@ This is the **OpenClaw Control Panel** — a web dashboard where you can:
 - Monitor agent activity and logs
 - Test your agent in real time
 
-### Step 5: Connect a chat channel
+### Step 5: Connect with the Gateway Token
+
+The dashboard will ask for a **Gateway Token**. Get it by running:
+
+```bash
+docker exec -it openclaw-agent openclaw dashboard --no-open
+```
+
+This prints a tokenized URL like:
+```
+http://localhost:18789/?token=abc123...
+```
+
+**Option A (easiest):** Copy the full tokenized URL and open it directly in your browser — it auto-fills the token.
+
+**Option B:** Copy just the token value and paste it into the **Gateway Token** field on the dashboard, then click **Connect**.
+
+### Step 6: Complete Pairing (if prompted)
+
+After entering the token, you may see a **"pairing required"** message. This is a one-time security step. To pair:
+
+```bash
+docker exec -it openclaw-agent openclaw gateway pair
+```
+
+Or open the full tokenized URL from Step 5 — it includes pairing parameters:
+```
+http://localhost:18789/?token=abc123...&pair=true
+```
+
+Once paired, refresh the dashboard. You should see the connected status and be able to interact with your agent.
+
+> **Tip:** You only need to pair once. The pairing persists across container restarts as long as the `openclaw-data` volume is intact.
+
+### Step 7: Connect a chat channel
 
 From the Control Panel, or via the command line:
 
@@ -147,7 +181,7 @@ Automatically checks and fixes:
 - `.gitignore` contains `.env` (prevents accidental commit)
 - Warns if `.env` is tracked by git
 
-### Phase 5: Security scorecard (10 points)
+### Phase 5: Security scorecard (9 points)
 
 ```
   Security Scorecard (Docker)
@@ -158,12 +192,11 @@ Automatically checks and fixes:
   │ API key file permissions (600)           │  ✓     │
   │ Linux capabilities dropped               │  ✓     │
   │ Privilege escalation blocked             │  ✓     │
-  │ Read-only root filesystem                │  ✓     │
-  │ Memory limit set (512MB)                 │  ✓     │
+  │ Memory limit set (1GB)                   │  ✓     │
   │ PID namespace isolated                   │  ✓     │
   │ .env protected by .gitignore             │  ✓     │
   └──────────────────────────────────────────┴────────┘
-  Score: 10/10 — HARDENED
+  Score: 9/9 — HARDENED
 ```
 
 ---
@@ -245,6 +278,8 @@ Open Telegram, find `@myopenclaw_bot`, send a message. The AI responds.
 | Install and start | `./docker-install.sh` |
 | Install with channel picker | `./docker-install.sh --channels` |
 | **Open Control Panel** | **`http://localhost:18789`** |
+| **Get tokenized dashboard URL** | `docker exec -it openclaw-agent openclaw dashboard --no-open` |
+| **Pair dashboard (one-time)** | `docker exec -it openclaw-agent openclaw gateway pair` |
 | Stop the agent | `./docker-install.sh --stop` |
 | Check if running | `./docker-install.sh --status` |
 | Diagnose problems | `./docker-install.sh --doctor` |
@@ -290,22 +325,21 @@ Example:
 
 ---
 
-## Security: 12 Layers of Protection
+## Security: 11 Layers of Protection
 
 | # | Protection | Plain English |
 |---|---|---|
 | 1 | Container isolation | Your agent runs in its own sandbox, separate from your computer |
-| 2 | Read-only filesystem | The agent can't modify its own code (prevents tampering) |
-| 3 | All capabilities dropped | The agent has zero special system powers |
-| 4 | No privilege escalation | Nothing inside the container can become root |
-| 5 | Resource limits | Max 512MB RAM, 1 CPU, 100 processes (can't hog your machine) |
-| 6 | Non-root user | Runs as a limited user, not as admin |
-| 7 | Localhost-only port | Only your computer can talk to the agent (not your WiFi network) |
-| 8 | Network isolation | Agent gets its own network, can't poke around your system |
-| 9 | DNS hardening | Uses Cloudflare + Google DNS (resists DNS poisoning) |
-| 10 | Log rotation | Logs can't fill up your disk (max 30MB) |
-| 11 | SSRF protection | Blocks cloud metadata endpoints that steal credentials |
-| 12 | Secure uninstall | API key file overwritten with random data before deletion |
+| 2 | All capabilities dropped | The agent has zero special system powers |
+| 3 | No privilege escalation | Nothing inside the container can become root |
+| 4 | Resource limits | Max 1GB RAM, 2 CPUs, 200 processes (can't hog your machine) |
+| 5 | Non-root user | Runs as a limited user, not as admin |
+| 6 | Localhost-only port | Only your computer can talk to the agent (not your WiFi network) |
+| 7 | Network isolation | Agent gets its own network, can't poke around your system |
+| 8 | DNS hardening | Uses Cloudflare + Google DNS (resists DNS poisoning) |
+| 9 | Log rotation | Logs can't fill up your disk (max 30MB) |
+| 10 | SSRF protection | Blocks cloud metadata endpoints that steal credentials |
+| 11 | Secure uninstall | API key file overwritten with random data before deletion |
 
 ### What the entrypoint checks on every startup
 
@@ -345,6 +379,15 @@ Each check has a specific error message and fix instructions if it fails.
 | "Build killed (OOM)" | Docker doesn't have enough RAM | Docker Desktop → Settings → Resources → Memory → 4GB+ |
 | API key validation fails 3 times | Typos or wrong key | Get fresh key at console.anthropic.com |
 
+### After install (dashboard / browser)
+
+| Error | Cause | Fix |
+|---|---|---|
+| "unauthorized: gateway token missing" | Dashboard needs the gateway auth token | Run `docker exec -it openclaw-agent openclaw dashboard --no-open` and open the tokenized URL |
+| "pairing required" | Dashboard not yet paired with gateway | Run `docker exec -it openclaw-agent openclaw gateway pair`, then refresh |
+| "error empty response" / page won't load | Container running but gateway can't serve requests | Check logs: `docker logs openclaw-agent`. Rebuild: `docker compose build --no-cache` |
+| Page loads but WebSocket won't connect | Token expired or volume was reset | Get a fresh token: `docker exec -it openclaw-agent openclaw dashboard --no-open` |
+
 ### After install (inside the container)
 
 | Error in logs | Cause | Fix |
@@ -358,7 +401,7 @@ Each check has a specific error message and fix instructions if it fails.
 | "invalid JSON" | Config file corrupted | Restart container (auto-recovers) |
 | "OpenClaw binary not found" | Image corrupted | `docker compose build --no-cache` |
 | "cannot reach api.anthropic.com" | No internet in container | Restart Docker Desktop, check connection |
-| Exit code 137 | Out of memory | Increase `memory: 512M` to `1G` in docker-compose.yml |
+| Exit code 137 | Out of memory | Increase `memory: 1G` to `2G` in docker-compose.yml |
 | Exit code 139 | Crash (segfault) | `./docker-install.sh --uninstall && ./docker-install.sh` |
 
 ---
