@@ -6,6 +6,130 @@ A beginner-friendly, auto-troubleshooting Docker installer for [OpenClaw](https:
 
 ---
 
+## 🚀 Never Used a Terminal Before? Start Here
+
+If you've never opened a terminal/command line, this section is for you. Follow every step — don't skip ahead.
+
+### Step 0: Open Your Terminal
+
+A "terminal" is a text window where you type commands. Every computer has one built in.
+
+| Your Computer | How to Open the Terminal |
+|---|---|
+| **Windows 10/11** | Press `Windows key`, type **Git Bash**, click it. *(If you don't have it, install [Git for Windows](https://gitforwindows.org/) first — click "Next" on every screen.)* |
+| **Mac** | Press `Cmd + Space`, type **Terminal**, press Enter |
+| **Linux** | Press `Ctrl + Alt + T` |
+
+> **Windows users:** Always use **Git Bash** (not PowerShell, not CMD). The installer is a bash script and won't work in PowerShell.
+
+You'll see a blinking cursor like this:
+```
+$
+```
+That's where you type commands. After typing each command, press **Enter** to run it.
+
+### Step 1: Install Docker Desktop (if you don't have it)
+
+Docker is the tool that runs OpenClaw in a safe container on your computer.
+
+| Your Computer | What to Do |
+|---|---|
+| **Windows** | Go to [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/), click **Download for Windows**, run the installer, restart your computer. If it asks about WSL 2, click **Yes/OK**. |
+| **Mac** | Go to [docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop/), click **Download for Mac** (pick **Apple Chip** if you have M1/M2/M3/M4, or **Intel** if older). Drag to Applications. Open it. |
+| **Linux** | In your terminal, paste: `curl -fsSL https://get.docker.com \| sh` and press Enter. |
+
+**After installing:** Open Docker Desktop and wait until you see **"Docker Desktop is running"** (green icon in your system tray/menu bar). This must be running before you continue.
+
+### Step 2: Get Your API Key (takes 2 minutes)
+
+You need an Anthropic API key — this is what powers the AI brain.
+
+1. Go to **[console.anthropic.com](https://console.anthropic.com)** in your browser
+2. Create a free account (email + password)
+3. Click **API Keys** in the left sidebar
+4. Click **Create Key** → name it anything (e.g., "openclaw")
+5. **Copy the key** — it looks like: `sk-ant-api03-xxxxx...` (very long)
+6. **Save it somewhere** (paste into Notepad/Notes) — you'll need it in Step 4
+
+> ⚠️ **Important:** You can only see the key once. If you lose it, you'll need to create a new one.
+
+### Step 3: Download and Run the Installer
+
+In your terminal, type these three commands **one at a time** (press Enter after each):
+
+```bash
+git clone https://github.com/shilpa-kulkarni-14/openclaw-docker-installer.git
+```
+*(This downloads the installer to your computer)*
+
+```bash
+cd openclaw-docker-installer
+```
+*(This moves into the installer folder)*
+
+```bash
+./docker-install.sh
+```
+*(This starts the installer)*
+
+> **Windows:** If you get "permission denied", type `bash docker-install.sh` instead.
+
+### Step 4: Paste Your API Key When Asked
+
+The installer will ask:
+```
+  Anthropic API key (sk-ant-...): ▊
+```
+
+Paste your API key from Step 2 and press **Enter**.
+
+> **How to paste in the terminal:**
+> - **Windows (Git Bash):** Right-click → Paste, or `Shift + Insert`
+> - **Mac Terminal:** `Cmd + V`
+> - **Linux:** `Ctrl + Shift + V`
+
+If you mistype it, the installer tells you what's wrong and lets you try again (3 attempts).
+
+### Step 5: Wait ~2 Minutes
+
+The installer does everything automatically:
+- ✅ Checks your system
+- ✅ Builds the AI agent
+- ✅ Starts it up
+- ✅ Runs security checks
+
+When it's done, you'll see:
+```
+  ✓ Your OpenClaw agent is running!
+
+  Open this URL in your browser (token included — just click!):
+
+    http://localhost:18789/?token=abc123...
+```
+
+### Step 6: Open the Dashboard
+
+**Copy the full URL** from the installer output (the one with `?token=...`) and **paste it into your browser** (Chrome, Firefox, Edge — any browser).
+
+You should see the **OpenClaw Control Panel** — a web dashboard where you can manage your AI agent.
+
+> **Not working?** Make sure you're using the full URL with the token. If you just go to `localhost:18789` without the token, you'll get an "unauthorized" error.
+
+### Step 7: Connect a Chat Channel (Optional)
+
+Back in your terminal, run:
+```bash
+docker exec -it openclaw-agent openclaw configure
+```
+
+This wizard walks you through connecting Discord, Telegram, Slack, or any of the 25+ supported channels.
+
+### 🎉 You're Done!
+
+Your AI agent is running. You can close the terminal — the agent keeps running in the background. To stop it later: `./docker-install.sh --stop`
+
+---
+
 ## How It Works (The Simple Version)
 
 ```
