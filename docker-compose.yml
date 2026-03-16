@@ -58,17 +58,10 @@ services:
     cap_drop:
       - ALL
 
-    # ── Security: Read-only root filesystem ──
-    # Container can't modify its own binaries (prevents tampering).
-    # Writable paths: /home/openclaw/.openclaw (volume), /tmp (tmpfs), /home/openclaw/.npm (tmpfs)
-    read_only: true
-
-    # ── Security: Writable tmpfs mounts ──
-    # /tmp — scratch space for Node.js runtime (JIT, native addons need exec)
-    # /home/openclaw/.npm — npm cache writes during runtime
+    # ── Security: Writable tmpfs for /tmp ──
+    # Scratch space for Node.js runtime (capped, in-memory)
     tmpfs:
       - /tmp:size=200M,nosuid
-      - /home/openclaw/.npm:size=50M,nosuid
 
     # ── Security: Prevent privilege escalation ──
     # Blocks any attempt to gain root inside the container

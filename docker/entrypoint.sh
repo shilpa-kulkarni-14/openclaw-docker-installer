@@ -403,14 +403,14 @@ else
   if command -v jq >/dev/null 2>&1; then
     BIND_VAL="$(jq -r '.gateway.bind // ""' "$CONFIG_FILE" 2>/dev/null)"
     case "$BIND_VAL" in
-      0.0.0.0|""|localhost|127.0.0.1)
+      0.0.0.0|""|localhost)
         echo "  ⚠ Migrating legacy gateway.bind \"$BIND_VAL\" → \"lan\"..."
         TMP="$(mktemp)"
         jq '.gateway.bind = "lan" | .gateway.controlUi.allowedOrigins = ["http://localhost:18789","http://127.0.0.1:18789"]' "$CONFIG_FILE" > "$TMP" && mv "$TMP" "$CONFIG_FILE"
         chmod 600 "$CONFIG_FILE"
         echo "  ✓ Config migrated to new bind mode format"
         ;;
-      lan|loopback|custom|tailnet|auto)
+      lan|loopback|custom|tailnet|auto|127.0.0.1)
         # Already using new format
         ;;
       *)
