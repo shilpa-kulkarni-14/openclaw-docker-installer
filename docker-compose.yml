@@ -74,9 +74,9 @@ services:
       - no-new-privileges:true
 
     # ── Security: PID namespace isolation ──
-    # Container can only see its own processes, not host processes
-    # (default behavior, explicitly set for clarity)
-    pid: "container:openclaw-agent"
+    # Each container gets its own PID namespace by default in Docker.
+    # The container can only see its own processes, not host processes.
+    # No explicit "pid:" setting needed — the default is already isolated.
 
     # ── Security: Resource limits ──
     # Prevents runaway processes from eating all your RAM/CPU

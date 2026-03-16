@@ -603,6 +603,32 @@ check_existing_container() {
       verbose "No existing container found"
       ;;
   esac
+
+  # ── Clean up stale containers from previous Compose project names ──
+  # If someone ran a different compose project (e.g., "openclaw" vs "openclaw-secure-installer"),
+  # there may be leftover containers like "openclaw-openclaw-gateway-1" that conflict.
+  local stale_containers
+  stale_containers="$(docker ps -a --format '{{.Names}}' 2>/dev/null | grep -i 'openclaw' | grep -v "$CONTAINER_NAME" || echo '')"
+  if [[ -n "$stale_containers" ]]; then
+    verbose "Found other openclaw containers: $stale_containers"
+    while IFS= read -r stale; do
+      [[ -z "$stale" ]] && continue
+      fix "Removing stale container from previous install: $stale"
+      docker rm -f "$stale" >> "$LOG_FILE" 2>&1 || true
+      FIXES_APPLIED+=("Removed stale container: $stale")
+    done <<< "$stale_containers"
+  fi
+
+  # ── Clean up stale networks from previous runs ──
+  local stale_networks
+  stale_networks="$(docker network ls --format '{{.Name}}' 2>/dev/null | grep -i 'openclaw' || echo '')"
+  if [[ -n "$stale_networks" ]]; then
+    while IFS= read -r net; do
+      [[ -z "$net" ]] && continue
+      verbose "Removing stale network: $net"
+      docker network rm "$net" >> "$LOG_FILE" 2>&1 || true
+    done <<< "$stale_networks"
+  fi
 }
 
 check_network_connectivity() {
