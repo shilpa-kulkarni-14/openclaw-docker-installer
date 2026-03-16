@@ -482,11 +482,52 @@ check_disk_space() {
 
 check_port_available() {
   local port_in_use=false
+  local our_container_running=false
 
-  # Check if the port is already in use (not by our container)
+  # Check if our container is already running
   if docker ps --format '{{.Names}}' 2>/dev/null | grep -q "$CONTAINER_NAME"; then
-    # Our container is already running, that's fine
-    verbose "Port $GATEWAY_PORT in use by our container"
+    our_container_running=true
+    verbose "Port $GATEWAY_PORT in use by our container (will be restarted in phase 3)"
+  fi
+
+  # Always check for non-Docker processes on the port, even if our container is running.
+  # Phase 3 does `compose down` before `up`, so if a native node process is ALSO bound
+  # to this port, it will block the container from restarting.
+  if command_exists lsof; then
+    local non_docker_pid=""
+    non_docker_pid="$(lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN -t 2>/dev/null | while read -r pid; do
+      # Skip PIDs that belong to Docker/containerd
+      local cmd_name
+      cmd_name="$(ps -p "$pid" -o comm= 2>/dev/null || echo '')"
+      if [[ "$cmd_name" != "com.docker"* && "$cmd_name" != "containerd"* && "$cmd_name" != "docker"* ]]; then
+        echo "$pid"
+      fi
+    done | head -1)"
+
+    if [[ -n "$non_docker_pid" ]]; then
+      local non_docker_name
+      non_docker_name="$(ps -p "$non_docker_pid" -o comm= 2>/dev/null || echo 'unknown')"
+      warn "Non-Docker process $non_docker_name (PID $non_docker_pid) is also on port $GATEWAY_PORT"
+      info "This will block the container from starting"
+      if prompt_yn "Stop it to free the port?" "y"; then
+        fix "Stopping process $non_docker_pid..."
+        kill "$non_docker_pid" 2>/dev/null || true
+        sleep 2
+        if kill -0 "$non_docker_pid" 2>/dev/null; then
+          kill -9 "$non_docker_pid" 2>/dev/null || true
+          sleep 1
+        fi
+        success "Port blocker removed"
+        FIXES_APPLIED+=("Stopped $non_docker_name (PID $non_docker_pid) blocking port $GATEWAY_PORT")
+      else
+        warn "Continuing — container may fail to bind port"
+      fi
+      return 0
+    fi
+  fi
+
+  # If our container is running and no other process conflicts, we're fine
+  if [[ "$our_container_running" == true ]]; then
     return 0
   fi
 
@@ -1165,7 +1206,10 @@ diagnose_start_failure() {
   elif echo "$log_tail" | grep -qi "port.*already.*allocated\|address already in use\|bind.*failed"; then
     warn "Port $GATEWAY_PORT is already in use"
 
-    # Try to identify what's using it
+    # Remove our own failed container first (compose created it but couldn't start it)
+    docker rm -f "$CONTAINER_NAME" >> "$LOG_FILE" 2>&1 || true
+
+    # Identify what's actually holding the port
     local blocker_pid=""
     local blocker_name=""
     if command_exists lsof; then
@@ -1176,26 +1220,26 @@ diagnose_start_failure() {
       fi
     fi
 
-    # Check if it's a stale OpenClaw container
-    if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "$CONTAINER_NAME"; then
-      fix "Removing stale container holding the port..."
-      docker rm -f "$CONTAINER_NAME" >> "$LOG_FILE" 2>&1 || true
-
-    # Check if it's a native OpenClaw or node process on the same port
-    elif [[ "$blocker_name" == "node" && -n "$blocker_pid" ]]; then
-      warn "A Node.js process (PID $blocker_pid) is using port $GATEWAY_PORT"
-      info "This is likely a previous OpenClaw run (native installer)"
-      if prompt_yn "Kill the process to free the port?" "y"; then
-        fix "Stopping process $blocker_pid..."
-        kill "$blocker_pid" >> "$LOG_FILE" 2>&1 || true
-        sleep 2
-        # Verify it's gone
-        if lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN &>/dev/null 2>&1; then
-          kill -9 "$blocker_pid" >> "$LOG_FILE" 2>&1 || true
-          sleep 1
-        fi
-        FIXES_APPLIED+=("Killed Node.js process (PID $blocker_pid) blocking port $GATEWAY_PORT")
+    # Kill the process that's holding the port
+    if [[ -n "$blocker_pid" ]]; then
+      fix "Stopping process $blocker_pid ($blocker_name) to free port $GATEWAY_PORT..."
+      kill "$blocker_pid" >> "$LOG_FILE" 2>&1 || true
+      sleep 2
+      # Verify it's gone, force kill if needed
+      if command_exists lsof && lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN &>/dev/null 2>&1; then
+        kill -9 "$blocker_pid" >> "$LOG_FILE" 2>&1 || true
+        sleep 1
       fi
+      # Final check
+      if command_exists lsof && lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN &>/dev/null 2>&1; then
+        warn "Port $GATEWAY_PORT is still in use after killing PID $blocker_pid"
+      else
+        success "Port $GATEWAY_PORT is now free"
+        FIXES_APPLIED+=("Killed $blocker_name (PID $blocker_pid) blocking port $GATEWAY_PORT")
+      fi
+    else
+      warn "Could not identify what's using port $GATEWAY_PORT"
+      info "Try manually: ${BOLD}lsof -i :$GATEWAY_PORT${RESET}"
     fi
 
   # ── Container name conflict ──
