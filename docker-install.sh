@@ -1044,12 +1044,23 @@ validate_openai_key() {
 fix_env_permissions() {
   if [[ ! -f "$ENV_FILE" ]]; then return 0; fi
 
+  # Windows (Git Bash/MINGW) doesn't support Unix permissions — skip silently
+  if [[ "$HOST_OS" == "windows" ]]; then
+    log "Skipping .env permission check on Windows (not supported)"
+    return 0
+  fi
+
   local perms
-  perms="$(stat -f '%A' "$ENV_FILE" 2>/dev/null || stat -c '%a' "$ENV_FILE" 2>/dev/null)"
+  perms="$(stat -f '%A' "$ENV_FILE" 2>/dev/null || stat -c '%a' "$ENV_FILE" 2>/dev/null || echo '')"
+
+  if [[ -z "$perms" ]]; then
+    log "Could not read file permissions — skipping"
+    return 0
+  fi
 
   if [[ "$perms" != "600" ]]; then
     fix "Fixing .env permissions from ${perms} to 600"
-    chmod 600 "$ENV_FILE"
+    chmod 600 "$ENV_FILE" 2>/dev/null || true
   fi
 }
 
@@ -1167,8 +1178,28 @@ build_and_start() {
 
   local build_success=false
 
-  # Attempt 1: Normal build
-  if compose_cmd build >> "$LOG_FILE" 2>&1; then
+  # Check if we should force a no-cache build:
+  # If the entrypoint or Dockerfile changed since the last image was built,
+  # Docker's layer cache may serve stale files. Force a clean build.
+  local force_no_cache=false
+  local image_created
+  image_created="$(docker inspect --format='{{.Created}}' "$IMAGE_NAME:latest" 2>/dev/null || echo '')"
+  if [[ -z "$image_created" ]]; then
+    # No existing image — first build, normal is fine
+    :
+  elif [[ "$SCRIPT_DIR/docker/entrypoint.sh" -nt "$SCRIPT_DIR/.last-build" ]] 2>/dev/null || \
+       [[ "$SCRIPT_DIR/Dockerfile" -nt "$SCRIPT_DIR/.last-build" ]] 2>/dev/null || \
+       [[ "$SCRIPT_DIR/docker-compose.yml" -nt "$SCRIPT_DIR/.last-build" ]] 2>/dev/null; then
+    info "Config files changed since last build — rebuilding from scratch"
+    force_no_cache=true
+  fi
+
+  # Attempt 1: Normal build (or no-cache if files changed)
+  local build_cmd="build"
+  if [[ "$force_no_cache" == true ]]; then
+    build_cmd="build --no-cache"
+  fi
+  if compose_cmd $build_cmd >> "$LOG_FILE" 2>&1; then
     build_success=true
   else
     warn "Build failed on first attempt. Diagnosing..."
@@ -1205,6 +1236,9 @@ build_and_start() {
   fi
 
   success "Docker image built"
+
+  # Record build timestamp so we know when to force rebuild next time
+  touch "$SCRIPT_DIR/.last-build" 2>/dev/null || true
 
   # ── Start the container ──
   info "Starting OpenClaw agent..."
@@ -1747,16 +1781,25 @@ verify_and_finish() {
 
   # Check 4: .env file permissions
   if [[ -f "$ENV_FILE" ]]; then
-    local env_perms
-    env_perms="$(stat -f '%A' "$ENV_FILE" 2>/dev/null || stat -c '%a' "$ENV_FILE" 2>/dev/null)"
-    if [[ "$env_perms" == "600" ]]; then
-      scorecard_pass "API key file permissions (600)"
+    if [[ "$HOST_OS" == "windows" ]]; then
+      # Windows doesn't support Unix file permissions — auto-pass
+      scorecard_pass "API key file exists (permissions N/A on Windows)"
       score=$((score + 1))
     else
-      scorecard_fail "API key file permissions (${env_perms})"
-      fix "Fixing .env permissions to 600"
-      chmod 600 "$ENV_FILE"
-      score=$((score + 1))  # Fixed, so count it
+      local env_perms
+      env_perms="$(stat -f '%A' "$ENV_FILE" 2>/dev/null || stat -c '%a' "$ENV_FILE" 2>/dev/null || echo '')"
+      if [[ "$env_perms" == "600" ]]; then
+        scorecard_pass "API key file permissions (600)"
+        score=$((score + 1))
+      elif [[ -z "$env_perms" ]]; then
+        scorecard_pass "API key file exists"
+        score=$((score + 1))
+      else
+        scorecard_fail "API key file permissions (${env_perms})"
+        fix "Fixing .env permissions to 600"
+        chmod 600 "$ENV_FILE" 2>/dev/null || true
+        score=$((score + 1))  # Fixed, so count it
+      fi
     fi
   else
     scorecard_fail "API key file exists"
@@ -1861,22 +1904,31 @@ verify_and_finish() {
     echo -e "  ${BOLD}${GREEN}Your OpenClaw agent is running!${RESET}"
     echo ""
 
+    # ── Retrieve gateway token if we don't have it yet ──
+    if [[ -z "$GENERATED_GATEWAY_TOKEN" ]] && [[ -f "$ENV_FILE" ]]; then
+      GENERATED_GATEWAY_TOKEN="$(grep '^OPENCLAW_GATEWAY_TOKEN=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- || echo '')"
+    fi
+
+    # Last resort: try to extract from the container config
+    if [[ -z "$GENERATED_GATEWAY_TOKEN" ]]; then
+      log "Extracting gateway token from container config..."
+      GENERATED_GATEWAY_TOKEN="$(docker exec "$CONTAINER_NAME" sh -c 'cat /home/openclaw/.openclaw/openclaw.json 2>/dev/null' | grep -o '"token"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"token"[[:space:]]*:[[:space:]]*"//' | sed 's/"$//' || echo '')"
+    fi
+
     # ── Auto-pair the dashboard (silent, best-effort) ──
     log "Auto-pairing dashboard..."
     docker exec "$CONTAINER_NAME" openclaw gateway pair 2>/dev/null || true
 
     # ── Print the full dashboard URL with token ──
-    # We generated the token during configure_keys and passed it via env var,
-    # so we already know it — no need to exec into the container.
     if [[ -n "$GENERATED_GATEWAY_TOKEN" ]]; then
       local dashboard_url="http://localhost:${GATEWAY_PORT}/?token=${GENERATED_GATEWAY_TOKEN}"
-      success "Dashboard paired automatically"
+      success "Dashboard ready"
       echo ""
       echo -e "  ${BOLD}Open this URL in your browser (token included — just click!):${RESET}"
       echo ""
       echo -e "    ${CYAN}${UNDERLINE}${dashboard_url}${RESET}"
     else
-      # Fallback: token not available (e.g., .env already existed with a key)
+      # Absolute fallback
       echo -e "  ${BOLD}Open in your browser:${RESET}"
       echo -e "    ${CYAN}${UNDERLINE}http://localhost:${GATEWAY_PORT}${RESET}"
       echo ""
@@ -2029,17 +2081,23 @@ run_doctor() {
   if [[ -f "$ENV_FILE" ]]; then
     success ".env file exists"
 
-    # Check permissions
-    local env_perms
-    env_perms="$(stat -f '%A' "$ENV_FILE" 2>/dev/null || stat -c '%a' "$ENV_FILE" 2>/dev/null)"
-    if [[ "$env_perms" == "600" ]]; then
-      success ".env permissions: 600 (secure)"
+    # Check permissions (skip on Windows — not supported)
+    if [[ "$HOST_OS" == "windows" ]]; then
+      success ".env permissions: N/A (Windows)"
     else
-      warn ".env permissions: ${env_perms} (should be 600)"
-      problems=$((problems + 1))
-      fix "Setting .env permissions to 600"
-      chmod 600 "$ENV_FILE"
-      fixed=$((fixed + 1))
+      local env_perms
+      env_perms="$(stat -f '%A' "$ENV_FILE" 2>/dev/null || stat -c '%a' "$ENV_FILE" 2>/dev/null || echo '')"
+      if [[ -z "$env_perms" ]]; then
+        success ".env file exists"
+      elif [[ "$env_perms" == "600" ]]; then
+        success ".env permissions: 600 (secure)"
+      else
+        warn ".env permissions: ${env_perms} (should be 600)"
+        problems=$((problems + 1))
+        fix "Setting .env permissions to 600"
+        chmod 600 "$ENV_FILE" 2>/dev/null || true
+        fixed=$((fixed + 1))
+      fi
     fi
 
     # Check key format

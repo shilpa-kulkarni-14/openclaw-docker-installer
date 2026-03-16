@@ -12,3 +12,6 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Build timestamp (used to detect when to force rebuild)
+.last-build

@@ -80,9 +80,12 @@ WORKDIR /home/openclaw
 EXPOSE 18789
 
 # Health check — verifies gateway is responding
-# Retries 3 times with 30s intervals before marking unhealthy
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD curl -sf http://localhost:18789/health || exit 1
+# Tries localhost first, then the container's hostname (covers all bind modes)
+# start-period=30s gives the gateway time to initialize on slower machines
+HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
+  CMD curl -sf http://localhost:18789/health 2>/dev/null || \
+      curl -sf http://$(hostname -i 2>/dev/null || echo localhost):18789/health 2>/dev/null || \
+      curl -sf http://0.0.0.0:18789/health 2>/dev/null || exit 1
 
 # Use tini as PID 1 for proper signal handling
 # This ensures SIGTERM/SIGINT properly shut down Node.js
