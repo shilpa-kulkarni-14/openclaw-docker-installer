@@ -509,26 +509,63 @@ check_port_available() {
     warn "Port $GATEWAY_PORT is already in use by another application"
 
     # Identify what's using it
-    local process_info=""
+    local blocker_name=""
+    local blocker_pid=""
     if command_exists lsof; then
-      process_info="$(lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN 2>/dev/null | tail -1 || echo '')"
+      blocker_name="$(lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN 2>/dev/null | awk 'NR==2 {print $1}' || echo '')"
+      blocker_pid="$(lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN -t 2>/dev/null | head -1 || echo '')"
+      if [[ -n "$blocker_name" ]]; then
+        info "Used by: ${DIM}${blocker_name} (PID ${blocker_pid})${RESET}"
+      fi
     fi
 
-    if [[ -n "$process_info" ]]; then
-      info "Used by: ${DIM}${process_info}${RESET}"
-    fi
+    # ── Auto-fix: If it's a node process (likely native OpenClaw), offer to kill it ──
+    if [[ "$blocker_name" == "node" && -n "$blocker_pid" ]]; then
+      info "This looks like a previous OpenClaw run (native installer)"
+      if prompt_yn "Stop it to free the port?" "y"; then
+        fix "Stopping process $blocker_pid..."
+        kill "$blocker_pid" 2>/dev/null || true
+        sleep 2
+        # Verify port is free
+        if command_exists lsof && lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN &>/dev/null 2>&1; then
+          kill -9 "$blocker_pid" 2>/dev/null || true
+          sleep 1
+        fi
+        if command_exists lsof && lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN &>/dev/null 2>&1; then
+          warn "Process didn't stop. Container may fail to bind port."
+        else
+          success "Port $GATEWAY_PORT is now free"
+          FIXES_APPLIED+=("Stopped Node.js process (PID $blocker_pid) blocking port $GATEWAY_PORT")
+        fi
+      else
+        warn "Continuing — container may fail to bind port"
+      fi
 
-    echo ""
-    echo -e "  ${BOLD}Options:${RESET}"
-    echo -e "    1. Stop the other application using port $GATEWAY_PORT"
-    echo -e "    2. Edit ${BOLD}docker-compose.yml${RESET} to use a different port"
-    echo -e "       Change: ${CYAN}127.0.0.1:18789:18789${RESET} → ${CYAN}127.0.0.1:18790:18789${RESET}"
-    echo ""
+    # ── Auto-fix: If it's our own Docker container ──
+    elif docker ps --format '{{.Names}}' 2>/dev/null | grep -q "$CONTAINER_NAME"; then
+      fix "Our own container is already using the port. Stopping it..."
+      compose_cmd down >> "$LOG_FILE" 2>&1 || docker rm -f "$CONTAINER_NAME" >> "$LOG_FILE" 2>&1 || true
+      sleep 1
+      success "Previous container stopped"
+      FIXES_APPLIED+=("Stopped previous OpenClaw container to free port $GATEWAY_PORT")
 
-    if prompt_yn "Try to continue anyway? (might fail)" "y"; then
-      warn "Continuing — container may fail to bind port"
+    # ── Manual fix needed ──
     else
-      exit 1
+      echo ""
+      echo -e "  ${BOLD}Options:${RESET}"
+      echo -e "    1. Stop the application using port $GATEWAY_PORT"
+      if [[ -n "$blocker_pid" ]]; then
+        echo -e "       ${CYAN}kill $blocker_pid${RESET}"
+      fi
+      echo -e "    2. Edit ${BOLD}docker-compose.yml${RESET} to use a different port"
+      echo -e "       Change: ${CYAN}127.0.0.1:18789:18789${RESET} → ${CYAN}127.0.0.1:18790:18789${RESET}"
+      echo ""
+
+      if prompt_yn "Try to continue anyway? (might fail)" "y"; then
+        warn "Continuing — container may fail to bind port"
+      else
+        exit 1
+      fi
     fi
   else
     verbose "Port $GATEWAY_PORT is available"
@@ -912,6 +949,11 @@ build_and_start() {
   # ── Start the container ──
   info "Starting OpenClaw agent..."
 
+  # Clean up any stale Docker Compose state before starting.
+  # This fixes "No such container" errors when a previous container was
+  # partially removed (e.g., `docker rm` without `docker compose down`).
+  compose_cmd down --remove-orphans >> "$LOG_FILE" 2>&1 || true
+
   if ! compose_cmd up -d >> "$LOG_FILE" 2>&1; then
     warn "Failed to start container. Diagnosing..."
     diagnose_start_failure
@@ -919,11 +961,17 @@ build_and_start() {
     # Retry after diagnosis/fix
     fix "Retrying container start..."
     if ! compose_cmd up -d >> "$LOG_FILE" 2>&1; then
-      error "Container still won't start."
-      echo ""
-      echo -e "  ${BOLD}Check logs:${RESET} ${CYAN}docker logs $CONTAINER_NAME${RESET}"
-      echo -e "  ${BOLD}Full log:${RESET} ${CYAN}cat $LOG_FILE${RESET}"
-      exit 1
+      # Last resort: full nuke and recreate
+      fix "Full cleanup and fresh start..."
+      docker rm -f "$CONTAINER_NAME" >> "$LOG_FILE" 2>&1 || true
+      compose_cmd down -v --remove-orphans >> "$LOG_FILE" 2>&1 || true
+      if ! compose_cmd up -d --force-recreate >> "$LOG_FILE" 2>&1; then
+        error "Container still won't start after full cleanup."
+        echo ""
+        echo -e "  ${BOLD}Check logs:${RESET} ${CYAN}docker logs $CONTAINER_NAME${RESET}"
+        echo -e "  ${BOLD}Full log:${RESET} ${CYAN}cat $LOG_FILE${RESET}"
+        exit 1
+      fi
     fi
   fi
 
@@ -1080,26 +1128,55 @@ diagnose_start_failure() {
   local log_tail
   log_tail="$(tail -30 "$LOG_FILE" 2>/dev/null)"
 
-  if echo "$log_tail" | grep -qi "port.*already.*allocated\|address already in use\|bind.*failed"; then
+  # ── "No such container" — stale Docker Compose state ──
+  if echo "$log_tail" | grep -qi "No such container"; then
+    fix "Stale container reference found. Cleaning up Docker Compose state..."
+    docker rm -f "$CONTAINER_NAME" >> "$LOG_FILE" 2>&1 || true
+    compose_cmd down --remove-orphans >> "$LOG_FILE" 2>&1 || true
+    FIXES_APPLIED+=("Cleaned stale Docker Compose container reference")
+
+  # ── Port conflict ──
+  elif echo "$log_tail" | grep -qi "port.*already.*allocated\|address already in use\|bind.*failed"; then
     warn "Port $GATEWAY_PORT is already in use"
 
     # Try to identify what's using it
+    local blocker_pid=""
+    local blocker_name=""
     if command_exists lsof; then
-      local blocker
-      blocker="$(lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN 2>/dev/null | awk 'NR==2 {print $1, $2}' || echo '')"
-      if [[ -n "$blocker" ]]; then
-        info "Blocked by: $blocker"
+      blocker_name="$(lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN 2>/dev/null | awk 'NR==2 {print $1}' || echo '')"
+      blocker_pid="$(lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN -t 2>/dev/null | head -1 || echo '')"
+      if [[ -n "$blocker_name" ]]; then
+        info "Blocked by: $blocker_name (PID $blocker_pid)"
       fi
     fi
 
-    # Check if it's a stale container
+    # Check if it's a stale OpenClaw container
     if docker ps -a --format '{{.Names}}' 2>/dev/null | grep -q "$CONTAINER_NAME"; then
-      fix "Removing stale container..."
+      fix "Removing stale container holding the port..."
       docker rm -f "$CONTAINER_NAME" >> "$LOG_FILE" 2>&1 || true
+
+    # Check if it's a native OpenClaw or node process on the same port
+    elif [[ "$blocker_name" == "node" && -n "$blocker_pid" ]]; then
+      warn "A Node.js process (PID $blocker_pid) is using port $GATEWAY_PORT"
+      info "This is likely a previous OpenClaw run (native installer)"
+      if prompt_yn "Kill the process to free the port?" "y"; then
+        fix "Stopping process $blocker_pid..."
+        kill "$blocker_pid" >> "$LOG_FILE" 2>&1 || true
+        sleep 2
+        # Verify it's gone
+        if lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN &>/dev/null 2>&1; then
+          kill -9 "$blocker_pid" >> "$LOG_FILE" 2>&1 || true
+          sleep 1
+        fi
+        FIXES_APPLIED+=("Killed Node.js process (PID $blocker_pid) blocking port $GATEWAY_PORT")
+      fi
     fi
+
+  # ── Container name conflict ──
   elif echo "$log_tail" | grep -qi "name.*already in use"; then
     fix "Container name conflict. Removing old container..."
     docker rm -f "$CONTAINER_NAME" >> "$LOG_FILE" 2>&1 || true
+    FIXES_APPLIED+=("Removed container name conflict")
   fi
 }
 
