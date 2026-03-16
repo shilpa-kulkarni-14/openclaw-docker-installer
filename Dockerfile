@@ -52,7 +52,12 @@ RUN apk add --no-cache \
 
 # Copy OpenClaw from builder (only the installed package, nothing else)
 COPY --from=builder /usr/local/lib/node_modules /usr/local/lib/node_modules
-COPY --from=builder /usr/local/bin/openclaw /usr/local/bin/openclaw
+
+# Recreate the bin symlink — COPY --from follows symlinks and copies file
+# content, which breaks import.meta.url path resolution (the binary would
+# look for dist/entry.mjs relative to /usr/local/bin/ instead of the
+# package directory). A symlink preserves correct path resolution.
+RUN ln -s /usr/local/lib/node_modules/openclaw/openclaw.mjs /usr/local/bin/openclaw
 
 # Copy the entrypoint script
 COPY docker/entrypoint.sh /entrypoint.sh

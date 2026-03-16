@@ -1478,6 +1478,23 @@ diagnose_container_crash() {
     return
   fi
 
+  # ── Missing dist/entry.mjs (symlink broken by COPY --from) ──
+  if echo "$logs" | grep -qi "missing dist/entry\|dist/entry.*build output"; then
+    error "OpenClaw binary can't find its build output (dist/entry.mjs)."
+    echo ""
+    echo -e "  ${BOLD}Root cause:${RESET} The Docker image copied the openclaw binary as a flat file"
+    echo -e "  instead of preserving the symlink, breaking path resolution."
+    echo ""
+    echo -e "  ${BOLD}Fix:${RESET} Rebuild with the corrected Dockerfile:"
+    echo -e "    ${CYAN}docker compose down${RESET}"
+    echo -e "    ${CYAN}docker compose build --no-cache${RESET}"
+    echo -e "    ${CYAN}docker compose up -d${RESET}"
+    echo ""
+    echo -e "  If you pulled the latest installer, the Dockerfile already has the fix."
+    echo -e "  If not: ${CYAN}git pull && ./docker-install.sh${RESET}"
+    return
+  fi
+
   # ── npm/node module errors ──
   if echo "$logs" | grep -qi "MODULE_NOT_FOUND\|Cannot find module\|ERR_MODULE\|Error: Cannot find"; then
     error "OpenClaw module not found — image may be corrupted."
