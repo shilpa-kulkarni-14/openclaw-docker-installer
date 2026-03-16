@@ -65,7 +65,7 @@ ENV_FILE="$SCRIPT_DIR/.env"
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 CONTAINER_NAME="openclaw-agent"
 GATEWAY_PORT=18789
-IMAGE_NAME="openclaw-secure-installer-openclaw"
+IMAGE_NAME="openclaw-docker-installer-openclaw"
 
 # Flags
 FLAG_HACKATHON=false
@@ -801,7 +801,7 @@ check_existing_container() {
   esac
 
   # ── Clean up stale containers from previous Compose project names ──
-  # If someone ran a different compose project (e.g., "openclaw" vs "openclaw-secure-installer"),
+  # If someone ran a different compose project (e.g., "openclaw" vs "openclaw-docker-installer"),
   # there may be leftover containers like "openclaw-openclaw-gateway-1" that conflict.
   local stale_containers
   stale_containers="$(docker ps -a --format '{{.Names}}' 2>/dev/null | grep -i 'openclaw' | grep -v "$CONTAINER_NAME" || echo '')"
@@ -2125,7 +2125,7 @@ uninstall() {
   fi
 
   # Clean up any Docker build cache for this project
-  docker builder prune -f --filter "label=maintainer=OpenClaw Secure Installer" >> "$LOG_FILE" 2>&1 || true
+  docker builder prune -f --filter "label=maintainer=OpenClaw Docker Installer" >> "$LOG_FILE" 2>&1 || true
 
   echo ""
   echo -e "  ${GREEN}${BOLD}OpenClaw Docker uninstalled cleanly.${RESET}"

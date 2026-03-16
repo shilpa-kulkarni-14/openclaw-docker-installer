@@ -28,9 +28,9 @@ RUN apk add --no-cache git \
 # Minimal Alpine image with only what's needed to RUN OpenClaw.
 FROM node:22-alpine
 
-LABEL maintainer="OpenClaw Secure Installer"
-LABEL description="OpenClaw AI Agent — secure, containerized runtime"
-LABEL org.opencontainers.image.source="https://github.com/shilpa-kulkarni-14/openclaw-secure-installer"
+LABEL maintainer="OpenClaw Docker Installer"
+LABEL description="OpenClaw AI Agent — containerized runtime"
+LABEL org.opencontainers.image.source="https://github.com/shilpa-kulkarni-14/openclaw-docker-installer"
 
 # Install only runtime dependencies (no build tools, no compilers)
 # Each package is here for a reason:
