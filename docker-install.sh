@@ -965,19 +965,59 @@ configure_keys() {
     warn "Key validation failed 3 times. Saving anyway (you might know something we don't)."
   fi
 
-  # ── OpenAI Key (optional) ──
-  local openai_key=""
-  prompt_secret "OpenAI API key (optional, Enter to skip): " openai_key
+  # ── Additional LLM providers (interactive picker) ──
+  echo ""
+  echo -e "  ${BOLD}Want to add more AI providers?${RESET} ${DIM}(OpenClaw can use multiple LLMs)${RESET}"
+  echo ""
+  echo -e "    ${CYAN}1${RESET}) OpenAI (GPT-4)           ${DIM}platform.openai.com${RESET}"
+  echo -e "    ${CYAN}2${RESET}) Google Gemini             ${DIM}aistudio.google.com${RESET}"
+  echo -e "    ${CYAN}3${RESET}) Mistral                   ${DIM}console.mistral.ai${RESET}"
+  echo -e "    ${CYAN}4${RESET}) Groq (fast Llama/Mixtral)  ${DIM}console.groq.com${RESET}"
+  echo -e "    ${CYAN}5${RESET}) DeepSeek                  ${DIM}platform.deepseek.com${RESET}"
+  echo -e "    ${CYAN}6${RESET}) OpenRouter (100+ models)   ${DIM}openrouter.ai${RESET}"
+  echo -e "    ${CYAN}7${RESET}) Cohere                    ${DIM}dashboard.cohere.com${RESET}"
+  echo ""
+  echo -e "  ${DIM}Enter numbers separated by spaces, or press Enter to skip${RESET}"
+  local llm_selection=""
+  read -rp "  Add providers [Enter to skip]: " llm_selection
 
-  if [[ -n "$openai_key" ]] && ! validate_openai_key "$openai_key"; then
-    warn "That doesn't look like a standard OpenAI key (expected sk-...). Saving anyway."
-  fi
+  local openai_key="" google_key="" mistral_key="" groq_key="" deepseek_key="" openrouter_key="" cohere_key=""
 
-  # ── Channel selection ──
+  for num in $llm_selection; do
+    case "$num" in
+      1)
+        prompt_secret "  OpenAI API key (sk-proj-...): " openai_key
+        if [[ -n "$openai_key" ]] && ! validate_openai_key "$openai_key"; then
+          warn "Doesn't look like a standard OpenAI key. Saving anyway."
+        fi
+        ;;
+      2)
+        prompt_secret "  Google Gemini API key (AIza...): " google_key
+        ;;
+      3)
+        prompt_secret "  Mistral API key: " mistral_key
+        ;;
+      4)
+        prompt_secret "  Groq API key (gsk_...): " groq_key
+        ;;
+      5)
+        prompt_secret "  DeepSeek API key: " deepseek_key
+        ;;
+      6)
+        prompt_secret "  OpenRouter API key (sk-or-...): " openrouter_key
+        ;;
+      7)
+        prompt_secret "  Cohere API key: " cohere_key
+        ;;
+      *)
+        warn "Invalid selection: $num (skipping)"
+        ;;
+    esac
+  done
+
+  # ── Channel selection (always ask — part of the seamless experience) ──
   local channels=""
-  if [[ "$FLAG_CHANNELS" == true ]]; then
-    channels="$(select_channels_interactive)"
-  fi
+  channels="$(select_channels_interactive)"
 
   # ── Generate gateway token ──
   # We generate it here so the installer knows the token and can print
@@ -1012,9 +1052,14 @@ ANTHROPIC_API_KEY=${anthropic_key}
 OPENCLAW_GATEWAY_TOKEN=${gateway_token}
 EOF
 
-  if [[ -n "$openai_key" ]]; then
-    echo "OPENAI_API_KEY=${openai_key}" >> "$ENV_FILE"
-  fi
+  # Write all LLM provider keys
+  [[ -n "$openai_key" ]]     && echo "OPENAI_API_KEY=${openai_key}" >> "$ENV_FILE"
+  [[ -n "$google_key" ]]     && echo "GOOGLE_API_KEY=${google_key}" >> "$ENV_FILE"
+  [[ -n "$mistral_key" ]]    && echo "MISTRAL_API_KEY=${mistral_key}" >> "$ENV_FILE"
+  [[ -n "$groq_key" ]]       && echo "GROQ_API_KEY=${groq_key}" >> "$ENV_FILE"
+  [[ -n "$deepseek_key" ]]   && echo "DEEPSEEK_API_KEY=${deepseek_key}" >> "$ENV_FILE"
+  [[ -n "$openrouter_key" ]] && echo "OPENROUTER_API_KEY=${openrouter_key}" >> "$ENV_FILE"
+  [[ -n "$cohere_key" ]]     && echo "COHERE_API_KEY=${cohere_key}" >> "$ENV_FILE"
 
   if [[ -n "$channels" ]]; then
     echo "OPENCLAW_CHANNELS=${channels}" >> "$ENV_FILE"
@@ -1023,7 +1068,18 @@ EOF
   # Lock down permissions
   chmod 600 "$ENV_FILE"
 
-  success "API key saved to .env (permissions: 600 — only you can read)"
+  success "API keys saved securely"
+
+  # Show what was configured
+  local providers="Anthropic"
+  [[ -n "$openai_key" ]]     && providers+=", OpenAI"
+  [[ -n "$google_key" ]]     && providers+=", Google Gemini"
+  [[ -n "$mistral_key" ]]    && providers+=", Mistral"
+  [[ -n "$groq_key" ]]       && providers+=", Groq"
+  [[ -n "$deepseek_key" ]]   && providers+=", DeepSeek"
+  [[ -n "$openrouter_key" ]] && providers+=", OpenRouter"
+  [[ -n "$cohere_key" ]]     && providers+=", Cohere"
+  info "LLM providers: ${BOLD}${providers}${RESET}"
 
   if [[ -n "$channels" ]]; then
     success "Channels configured: ${BOLD}${channels}${RESET}"

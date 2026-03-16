@@ -6,197 +6,175 @@ A beginner-friendly, auto-troubleshooting Docker installer for [OpenClaw](https:
 
 ---
 
-## 🚀 Never Used a Terminal Before? Start Here
+## 🚀 Setup Guide (No Tech Experience Needed)
 
-If you've never opened a terminal/command line, this section is for you. Follow every step — don't skip ahead.
+Follow these steps in order. The installer handles everything — Docker, security, debugging — you just answer a few questions.
 
-### Step 0: Open Your Terminal
+### Step 1: Get Your AI Key (2 minutes)
 
-A "terminal" is a text window where you type commands. Every computer has one built in.
+Before running the installer, you need an API key from at least one AI provider. This is what powers the AI brain.
 
-| Your Computer | How to Open the Terminal |
+**Pick your AI provider** (you need at least Anthropic — the rest are optional):
+
+| Provider | Free Tier? | How to Get Your Key |
+|---|---|---|
+| **Anthropic (Claude)** — Required | Yes | Go to [console.anthropic.com](https://console.anthropic.com) → Sign up → API Keys → Create Key → Copy it |
+| **OpenAI (GPT-4)** | Yes | Go to [platform.openai.com/api-keys](https://platform.openai.com/api-keys) → Sign up → Create Key → Copy it |
+| **Google Gemini** | Yes | Go to [aistudio.google.com/apikey](https://aistudio.google.com/apikey) → Create Key → Copy it |
+| **Mistral** | Yes | Go to [console.mistral.ai](https://console.mistral.ai) → API Keys → Create → Copy it |
+| **Groq (fast Llama)** | Yes | Go to [console.groq.com/keys](https://console.groq.com/keys) → Create Key → Copy it |
+| **DeepSeek** | Yes | Go to [platform.deepseek.com](https://platform.deepseek.com) → API Keys → Create → Copy it |
+| **OpenRouter (100+ models)** | Yes | Go to [openrouter.ai/keys](https://openrouter.ai/keys) → Create Key → Copy it |
+| **Cohere** | Yes | Go to [dashboard.cohere.com/api-keys](https://dashboard.cohere.com/api-keys) → Create → Copy it |
+
+**Save your key(s)** somewhere (Notepad, Notes app, etc.) — you'll paste them into the installer in Step 3.
+
+> ⚠️ Most providers only show the key once. If you lose it, just create a new one.
+
+### Step 2: Open a Terminal and Download the Installer
+
+A "terminal" is a text window where you type commands. Here's how to open one:
+
+| Your Computer | How to Open It |
 |---|---|
-| **Windows 10/11** | Press `Windows key`, type **Git Bash**, click it. *(If you don't have it, install [Git for Windows](https://gitforwindows.org/) first — click "Next" on every screen.)* |
+| **Windows** | **Option A (recommended):** Install [Git for Windows](https://gitforwindows.org/) (click Next on every screen), then press `Windows key`, type **Git Bash**, click it. **Option B:** Press `Windows key`, type **PowerShell**, click it. |
 | **Mac** | Press `Cmd + Space`, type **Terminal**, press Enter |
 | **Linux** | Press `Ctrl + Alt + T` |
 
-> **Windows users:** Always use **Git Bash** (not PowerShell, not CMD). The installer is a bash script and won't work in PowerShell.
+Now type these commands **one at a time** (press **Enter** after each):
 
-You'll see a blinking cursor like this:
-```
-$
-```
-That's where you type commands. After typing each command, press **Enter** to run it.
-
-### Step 1: Get Your API Key(s) (takes 2 minutes)
-
-You need at least **one** AI provider key. The installer will ask for them.
-
-#### Anthropic (Required — powers Claude)
-
-1. Go to **[console.anthropic.com](https://console.anthropic.com)**
-2. Create a free account (email + password)
-3. Click **API Keys** in the left sidebar
-4. Click **Create Key** → name it anything (e.g., "openclaw")
-5. **Copy the key** — it looks like: `sk-ant-api03-xxxxx...` (very long)
-6. **Save it somewhere** (paste into Notepad/Notes) — you'll need it in Step 3
-
-> ⚠️ **Important:** You can only see the key once. If you lose it, create a new one.
-
-#### OpenAI (Optional — adds GPT-4 support)
-
-If you also want GPT-4 alongside Claude:
-
-1. Go to **[platform.openai.com/api-keys](https://platform.openai.com/api-keys)**
-2. Sign in or create an account
-3. Click **Create new secret key** → name it "openclaw"
-4. **Copy the key** — it looks like: `sk-proj-xxxxx...`
-
-> The installer will ask for the OpenAI key after the Anthropic key. Just press **Enter** to skip if you don't want it.
-
-#### Other LLM Providers (Optional — add after install)
-
-OpenClaw supports additional AI providers. After the initial install, you can add these keys to the `.env` file:
-
-| Provider | Env Variable | Key Format | Where to Get It |
-|---|---|---|---|
-| **Google Gemini** | `GOOGLE_API_KEY` | `AIza...` | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
-| **Mistral** | `MISTRAL_API_KEY` | `...` | [console.mistral.ai](https://console.mistral.ai) |
-| **Groq** | `GROQ_API_KEY` | `gsk_...` | [console.groq.com/keys](https://console.groq.com/keys) |
-| **DeepSeek** | `DEEPSEEK_API_KEY` | `sk-...` | [platform.deepseek.com](https://platform.deepseek.com) |
-| **Cohere** | `COHERE_API_KEY` | `...` | [dashboard.cohere.com/api-keys](https://dashboard.cohere.com/api-keys) |
-| **OpenRouter** | `OPENROUTER_API_KEY` | `sk-or-...` | [openrouter.ai/keys](https://openrouter.ai/keys) |
-
-To add extra provider keys after installing, open the `.env` file and add a line:
-```bash
-# In your terminal:
-nano .env
-
-# Add lines like:
-GOOGLE_API_KEY=AIzaSy...your-key-here
-GROQ_API_KEY=gsk_...your-key-here
-```
-Then restart: `docker compose restart`
-
-### Step 2: Download and Run the Installer
-
-In your terminal, type these three commands **one at a time** (press Enter after each):
-
+**If you have Git installed:**
 ```bash
 git clone https://github.com/shilpa-kulkarni-14/openclaw-docker-installer.git
-```
-*(This downloads the installer to your computer)*
-
-```bash
 cd openclaw-docker-installer
-```
-*(This moves into the installer folder)*
-
-```bash
 ./docker-install.sh
 ```
-*(This starts the installer)*
 
-> **Don't have Docker?** No worries — the installer detects this and **installs Docker for you automatically** (via Homebrew on Mac, get.docker.com on Linux, or walks you through it on Windows).
+**If you DON'T have Git** (or don't know what Git is):
+```bash
+curl -fsSL https://github.com/shilpa-kulkarni-14/openclaw-docker-installer/archive/refs/heads/main.tar.gz | tar xz
+cd openclaw-docker-installer-main
+bash docker-install.sh
+```
 
-> **Windows:** If you get "permission denied", type `bash docker-install.sh` instead.
+> **What is Git?** Git is a tool that downloads code from the internet. If you don't have it, use the `curl` option above — it does the same thing without needing Git.
 
-### Step 3: Paste Your API Key(s) When Asked
+> **Don't have Docker?** The installer will detect this and **install it for you automatically**.
 
-The installer will ask:
+> **Windows tip:** If you see "permission denied", type `bash docker-install.sh` instead of `./docker-install.sh`.
+
+### Step 3: Follow the Installer Prompts
+
+The installer asks you a few simple questions. Here's what to expect:
+
+**1. Paste your Anthropic API key:**
 ```
   Anthropic API key (sk-ant-...): ▊
 ```
+Paste the key you saved in Step 1. **How to paste:**
+- **Windows:** Right-click → Paste, or press `Shift + Insert`
+- **Mac:** Press `Cmd + V`
+- **Linux:** Press `Ctrl + Shift + V`
 
-Paste your Anthropic key from Step 1 and press **Enter**. Then it asks for the OpenAI key — press **Enter** to skip, or paste it if you have one.
+**2. Choose additional AI providers (optional):**
+```
+  Want to add more AI providers?
 
-> **How to paste in the terminal:**
-> - **Windows (Git Bash):** Right-click → Paste, or `Shift + Insert`
-> - **Mac Terminal:** `Cmd + V`
-> - **Linux:** `Ctrl + Shift + V`
+    1) OpenAI (GPT-4)
+    2) Google Gemini
+    3) Mistral
+    ...
 
-If you mistype it, the installer tells you what's wrong and lets you try again (3 attempts).
+  Add providers [Enter to skip]:
+```
+Type the numbers of providers you want (e.g., `1 2` for OpenAI + Gemini), or just press **Enter** to skip.
 
-### Step 4: Wait ~2 Minutes
+**3. Choose your chat channel:**
+```
+  Select channels to enable:
 
-The installer does everything automatically:
-- ✅ Installs Docker if you don't have it
+    1) Slack
+    2) Discord
+    3) Telegram
+    ...
+
+  Select [s]:
+```
+Pick where you want your AI agent to live. Type a number and press Enter.
+
+**4. Wait ~2 minutes** while the installer does everything:
+- ✅ Installs Docker (if needed)
 - ✅ Checks your system
 - ✅ Builds the AI agent
 - ✅ Starts it up
-- ✅ Runs security checks
+- ✅ Sets up security
+- ✅ Auto-fixes any problems it finds
 
-When it's done, you'll see:
+### Step 4: Open Your AI Agent
+
+When the installer finishes, it prints a URL. **Copy the entire URL** and paste it into your browser:
+
 ```
   ✓ Your OpenClaw agent is running!
 
   Open this URL in your browser (token included — just click!):
 
-    http://localhost:18789/?token=abc123...
+    http://localhost:18789/?token=abc123def456...
 ```
 
-### Step 5: Open the Dashboard
+You'll see the **OpenClaw Control Panel** — your AI agent's dashboard.
 
-**Copy the full URL** from the installer output (the one with `?token=...`) and **paste it into your browser** (Chrome, Firefox, Edge — any browser).
+### 🎉 That's It!
 
-You should see the **OpenClaw Control Panel** — a web dashboard where you can manage your AI agent.
+Your AI agent is running. You can close the terminal window — it keeps running in the background.
 
-> **Not working?** Make sure you're using the full URL with the token. If you just go to `localhost:18789` without the token, you'll get an "unauthorized" error.
+**Everyday commands** (type these in the terminal if you need them):
 
-### Step 6: Connect a Chat Channel (Optional)
-
-Back in your terminal, run:
-```bash
-docker exec -it openclaw-agent openclaw configure
-```
-
-This wizard walks you through connecting Discord, Telegram, Slack, or any of the 25+ supported channels.
-
-### 🎉 You're Done!
-
-Your AI agent is running. You can close the terminal — the agent keeps running in the background. To stop it later: `./docker-install.sh --stop`
+| What you want | What to type |
+|---|---|
+| Stop the agent | `./docker-install.sh --stop` |
+| Start it again | `./docker-install.sh` |
+| Something broken? | `./docker-install.sh --doctor` (auto-fixes most issues) |
+| Remove everything | `./docker-install.sh --uninstall` |
 
 ---
 
-## How It Works (The Simple Version)
+## How It Works
 
 ```
-You provide: One API key (the LLM key from Anthropic)
+You answer: 3 simple questions (API key, AI providers, chat channel)
      ↓
-The installer: Handles everything else
+The installer: Handles EVERYTHING else
      ↓
-You get: A running AI agent you can connect to Discord, Telegram, Slack, etc.
+You get: A running AI agent on Discord, Telegram, Slack, or 25+ channels
 ```
 
-### What key(s) do you need?
+**What the installer does for you (no manual steps needed):**
+- Installs Docker if you don't have it
+- Installs Git dependencies
+- Validates your API keys (catches typos, wrong key types)
+- Lets you pick your AI providers (Anthropic, OpenAI, Gemini, Mistral, Groq, DeepSeek, OpenRouter, Cohere)
+- Lets you pick your chat channel (Slack, Discord, Telegram, etc.)
+- Builds and starts the agent container
+- Auto-fixes 15+ common problems (port conflicts, DNS issues, permissions, disk space, etc.)
+- Sets up security (11 layers of protection)
+- Auto-generates and pairs the dashboard token
+- Prints a clickable URL to open the control panel
 
-**Just one to start: your Anthropic API key.** The installer asks for it. You can add other LLM providers later.
-
-| Key | Required? | What it does | Where to get it |
-|---|---|---|---|
-| **Anthropic API key** | Yes | Powers the AI (Claude) | [console.anthropic.com](https://console.anthropic.com) |
-| **OpenAI API key** | No | GPT-4 dual-model support | [platform.openai.com](https://platform.openai.com) |
-| **Google Gemini** | No | Gemini models | [aistudio.google.com/apikey](https://aistudio.google.com/apikey) |
-| **Mistral** | No | Mistral models | [console.mistral.ai](https://console.mistral.ai) |
-| **Groq** | No | Fast inference (Llama, Mixtral) | [console.groq.com/keys](https://console.groq.com/keys) |
-| **DeepSeek** | No | DeepSeek models | [platform.deepseek.com](https://platform.deepseek.com) |
-| **OpenRouter** | No | Access 100+ models via one key | [openrouter.ai/keys](https://openrouter.ai/keys) |
-
-The installer asks for Anthropic + OpenAI during setup. Other providers can be added to `.env` after install (see the beginner guide above for details).
-
-**What about Discord/Telegram/Slack tokens?** Those are configured *after* the install, when you run `openclaw configure`. The installer doesn't ask for them.
+**What about Discord/Telegram/Slack bot tokens?** The installer asks you to pick your channel. After install, run `docker exec -it openclaw-agent openclaw configure` to paste your bot token — the wizard walks you through it.
 
 ---
 
 ## Quick Start (for developers)
 
 ```bash
-git clone https://github.com/shilpa-kulkarni-14/openclaw-docker-installer.git
-cd openclaw-docker-installer
-./docker-install.sh
+git clone https://github.com/shilpa-kulkarni-14/openclaw-docker-installer.git && cd openclaw-docker-installer && ./docker-install.sh
 ```
 
-The installer handles **everything**: installs Docker if missing, validates your API key, builds the image, starts the container, auto-pairs the dashboard, and prints a tokenized URL you can click to open the control panel. No manual steps needed.
+Or without Git:
+```bash
+curl -fsSL https://github.com/shilpa-kulkarni-14/openclaw-docker-installer/archive/refs/heads/main.tar.gz | tar xz && cd openclaw-docker-installer-main && bash docker-install.sh
+```
 
 ---
 
