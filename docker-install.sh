@@ -13,7 +13,7 @@
 #
 # Usage:
 #   ./docker-install.sh
-#   ./docker-install.sh --hackathon     # Interactive channel picker
+#   ./docker-install.sh --channels      # Interactive channel picker
 #   ./docker-install.sh --stop          # Stop the agent
 #   ./docker-install.sh --uninstall     # Remove everything
 #   ./docker-install.sh --status        # Check if agent is running
@@ -68,7 +68,7 @@ GATEWAY_PORT=18789
 IMAGE_NAME="openclaw-docker-installer-openclaw"
 
 # Flags
-FLAG_HACKATHON=false
+FLAG_CHANNELS=false
 FLAG_UNINSTALL=false
 FLAG_STOP=false
 FLAG_STATUS=false
@@ -149,7 +149,7 @@ prompt_secret() {
 parse_args() {
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --hackathon)    FLAG_HACKATHON=true ;;
+      --channels)     FLAG_CHANNELS=true ;;
       --uninstall)    FLAG_UNINSTALL=true ;;
       --stop)         FLAG_STOP=true ;;
       --status)       FLAG_STATUS=true ;;
@@ -169,7 +169,7 @@ usage() {
 Usage: ./docker-install.sh [OPTIONS]
 
 Options:
-  --hackathon       Interactive channel selector (25+ channels)
+  --channels        Interactive channel selector (25+ channels)
   --stop            Stop the running agent
   --status          Check if the agent is running
   --doctor          Diagnose and auto-fix common problems
@@ -181,7 +181,7 @@ Options:
 
 Examples:
   ./docker-install.sh                  # Basic setup + start
-  ./docker-install.sh --hackathon      # Setup with channel picker
+  ./docker-install.sh --channels       # Setup with channel picker
   ./docker-install.sh --stop           # Stop the agent
   ./docker-install.sh --status         # Is it running?
   ./docker-install.sh --doctor         # Something broken? Run this
@@ -959,7 +959,7 @@ configure_keys() {
 
   # ── Channel selection ──
   local channels=""
-  if [[ "$FLAG_HACKATHON" == true ]]; then
+  if [[ "$FLAG_CHANNELS" == true ]]; then
     channels="$(select_channels_interactive)"
   fi
 
@@ -1656,7 +1656,17 @@ verify_and_finish() {
   fi
 
   # Check 2: Port bound to localhost only
+  # docker port can report 0.0.0.0 on Docker Desktop for Mac even when compose
+  # specifies 127.0.0.1, so fall back to inspecting PortBindings from the config.
+  local port_localhost=false
   if docker port "$CONTAINER_NAME" 2>/dev/null | grep -q "127.0.0.1"; then
+    port_localhost=true
+  elif docker inspect --format='{{json .HostConfig.PortBindings}}' "$CONTAINER_NAME" 2>/dev/null | grep -q '"HostIp":"127.0.0.1"'; then
+    port_localhost=true
+  elif grep -qE '^\s*-\s*"?127\.0\.0\.1:' "$SCRIPT_DIR/docker-compose.yml" 2>/dev/null; then
+    port_localhost=true
+  fi
+  if [[ "$port_localhost" == true ]]; then
     scorecard_pass "Port bound to localhost only"
     score=$((score + 1))
   else
@@ -1665,9 +1675,14 @@ verify_and_finish() {
   fi
 
   # Check 3: Running as non-root
+  # docker exec whoami can fail on Docker Desktop for Mac (timing/VM issues),
+  # so fall back to inspecting the image's configured User.
   local container_user
-  container_user="$(docker exec "$CONTAINER_NAME" whoami 2>/dev/null || echo 'unknown')"
-  if [[ "$container_user" != "root" ]] && [[ "$container_user" != "unknown" ]]; then
+  container_user="$(docker exec "$CONTAINER_NAME" whoami 2>/dev/null || echo '')"
+  if [[ -z "$container_user" ]]; then
+    container_user="$(docker inspect --format='{{.Config.User}}' "$CONTAINER_NAME" 2>/dev/null || echo '')"
+  fi
+  if [[ -n "$container_user" ]] && [[ "$container_user" != "root" ]] && [[ "$container_user" != "0" ]]; then
     scorecard_pass "Running as non-root (${container_user})"
     score=$((score + 1))
   else

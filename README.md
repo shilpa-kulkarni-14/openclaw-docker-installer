@@ -198,7 +198,7 @@ This walks you through everything from zero to a working bot.
 ```bash
 git clone https://github.com/shilpa-kulkarni-14/openclaw-docker-installer.git
 cd openclaw-docker-installer
-./docker-install.sh --hackathon
+./docker-install.sh --channels
 ```
 
 ### 4. Paste your API key when asked
@@ -243,7 +243,7 @@ Open Telegram, find `@myopenclaw_bot`, send a message. The AI responds.
 | What you want to do | Command |
 |---|---|
 | Install and start | `./docker-install.sh` |
-| Install with channel picker | `./docker-install.sh --hackathon` |
+| Install with channel picker | `./docker-install.sh --channels` |
 | **Open Control Panel** | **`http://localhost:18789`** |
 | Stop the agent | `./docker-install.sh --stop` |
 | Check if running | `./docker-install.sh --status` |
@@ -399,7 +399,7 @@ These are configured AFTER install using `openclaw configure`:
 | WebChat | Built-in browser widget |
 | Twitch | [dev.twitch.tv](https://dev.twitch.tv) → OAuth token |
 | LINE | LINE Developers → Channel access token |
-| And 12 more... | Run `./docker-install.sh --hackathon` to see all |
+| And 12 more... | Run `./docker-install.sh --channels` to see all |
 
 ---
 
