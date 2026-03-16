@@ -257,6 +257,174 @@ This launches an interactive channel picker supporting all 25+ OpenClaw channels
 
 ---
 
+## Step-by-Step: Your First OpenClaw Agent (Discord Example)
+
+Never used OpenClaw before? This section walks you through **everything** — from zero to a working AI agent in your Discord server. No prior experience needed.
+
+### What you'll need before starting
+
+- A computer running **macOS** or **Linux** (Windows users: [install WSL first](https://learn.microsoft.com/en-us/windows/wsl/install))
+- A **Discord account** (free at [discord.com](https://discord.com))
+- An **Anthropic API key** (free tier available at [console.anthropic.com](https://console.anthropic.com))
+- ~10 minutes
+
+### Step 1: Get your Anthropic API key
+
+This is what lets OpenClaw talk to Claude (the AI). You only need to do this once.
+
+1. Go to [console.anthropic.com](https://console.anthropic.com) and create an account
+2. Click **API Keys** in the left sidebar
+3. Click **Create Key**, give it a name like "openclaw"
+4. Copy the key — it starts with `sk-ant-`. **Save it somewhere temporarily** (you'll paste it during install)
+
+### Step 2: Run the installer
+
+Open your terminal (on Mac: search for "Terminal" in Spotlight) and run:
+
+```bash
+git clone https://github.com/shilpa-kulkarni-14/openclaw-secure-installer.git
+cd openclaw-secure-installer
+./install.sh --hackathon
+```
+
+You'll see the installer detect your system automatically:
+
+```
+  ✓ OS: macos (native) | Arch: arm64 | Package manager: brew | Shell: zsh | Secret backend: macos-keychain
+```
+
+It will install any missing dependencies (Node.js, jq) — just let it run.
+
+### Step 3: Enter your API key when prompted
+
+The installer will ask for your Anthropic key:
+
+```
+  Enter your Anthropic API key (sk-ant-...): ▊
+```
+
+Paste the key you copied in Step 1 and press Enter. The key is **not** shown on screen — that's intentional (for security).
+
+When asked for an OpenAI key, just press Enter to skip (it's optional):
+
+```
+  Enter your OpenAI API key (optional, Enter to skip): ▊
+```
+
+### Step 4: Select Discord as your channel
+
+Since you used `--hackathon`, the channel picker appears:
+
+```
+  Select channels to enable:
+  (Enter numbers separated by spaces, or 'a' for all, 's' for Slack only)
+
+     1) Slack                        Team chat & chat-ops
+     2) Discord                      Community servers & bots
+     3) Telegram                     Personal & group messaging
+     ...
+
+  Select [s]: 2
+```
+
+Type `2` and press Enter. You'll see:
+
+```
+  ✓  Enabled: Discord
+  ℹ  Discord: Create app at discord.com/developers → get Bot Token
+```
+
+### Step 5: Create your Discord bot
+
+Now you need to create a bot on Discord's side so OpenClaw has something to connect to.
+
+1. Go to [discord.com/developers/applications](https://discord.com/developers/applications)
+2. Click **New Application**, name it something like "MyOpenClawBot", click **Create**
+3. In the left sidebar, click **Bot**
+4. Click **Reset Token** and copy the bot token that appears — save it for the next step
+5. Scroll down and enable these under **Privileged Gateway Intents**:
+   - **Message Content Intent** (so the bot can read messages)
+   - **Server Members Intent** (optional, but useful)
+6. Click **Save Changes**
+
+### Step 6: Invite the bot to your Discord server
+
+1. In the left sidebar, click **OAuth2**
+2. Under **OAuth2 URL Generator**, check the `bot` scope
+3. Under **Bot Permissions**, check:
+   - **Send Messages**
+   - **Read Message History**
+   - **Read Messages/View Channels**
+4. Copy the generated URL at the bottom and open it in your browser
+5. Select your Discord server from the dropdown and click **Authorize**
+
+You should see your bot appear as offline in your server's member list — that's expected for now.
+
+### Step 7: Configure the Discord channel in OpenClaw
+
+The installer is done at this point. Now tell OpenClaw about your Discord bot token:
+
+```bash
+openclaw configure
+```
+
+When prompted, paste your Discord bot token from Step 5.
+
+### Step 8: Start your agent
+
+```bash
+oc-start
+```
+
+That's it. Your bot should come online in your Discord server within a few seconds. Go to any channel the bot has access to and type a message — the AI agent will respond.
+
+### Step 9: Verify everything is secure
+
+Run the security audit to confirm your setup is locked down:
+
+```bash
+oc-audit
+```
+
+You should see all green checkmarks:
+
+```
+  Security Scorecard
+  ┌──────────────────────────────────────┬────────┐
+  │ OpenClaw installed                   │  ✓     │
+  │ Credentials encrypted                │  ✓     │
+  │ Config file permissions 600          │  ✓     │
+  │ Directory permissions 700            │  ✓     │
+  │ Gateway bound to localhost           │  ✓     │
+  │ Gateway auth token set               │  ✓     │
+  │ Skill sandbox policy                 │  ✓     │
+  │ Secure launcher script               │  ✓     │
+  └──────────────────────────────────────┴────────┘
+  Score: 8/8 — HARDENED
+```
+
+### Quick reference: commands you'll use daily
+
+| Command | What it does |
+|---|---|
+| `oc-start` | Start your agent (credentials loaded securely) |
+| `oc-start-force` | Restart your agent (if it's already running) |
+| `oc-audit` | Check that your security is still intact |
+| `openclaw skill install <name>` | Add new skills to your agent |
+| `./install.sh --uninstall` | Completely remove everything (including vault entries) |
+
+### Troubleshooting
+
+| Problem | Fix |
+|---|---|
+| Bot shows as offline in Discord | Make sure `oc-start` is running in a terminal — it needs to stay open |
+| "Invalid token" error | Double-check you copied the **Bot Token** (not the Application ID or Client Secret) |
+| Bot doesn't respond to messages | Verify you enabled **Message Content Intent** in Step 5 |
+| Permission denied running `./install.sh` | Run `chmod +x install.sh` first |
+| Node.js install fails | Check the log file path shown in the error message — or try `./install.sh --verbose` for more detail |
+
+---
+
 ## What It Does — 7 Phases
 
 ### Phase 1: Environment Detection
@@ -449,6 +617,312 @@ Runs a security scorecard and installs shell aliases:
 | **Uninstall** | Orphaned volumes, dangling images | `./install.sh --uninstall` |
 | **OS support** | Requires Docker Desktop or daemon | Native — works everywhere |
 | **Disk usage** | ~500MB+ Docker image | ~50MB npm package |
+
+---
+
+## Docker Installer (Alternative)
+
+**Prefer Docker?** We now have a Docker-based installer that's just as beginner-friendly — but with **auto-troubleshooting** that detects and fixes 15+ common problems automatically. If you already have Docker installed (or are comfortable installing it), this is the fastest path — zero Node.js setup, zero system changes, and the installer holds your hand if anything goes wrong.
+
+### Why Docker?
+
+| | Native Installer (`install.sh`) | Docker Installer (`docker-install.sh`) |
+|---|---|---|
+| **Installs things on your machine** | Yes (Node.js, npm, jq) | No — everything runs in a container |
+| **Credential storage** | OS Keychain / encrypted files | `.env` file (chmod 600) inside project |
+| **Isolation** | Policy-based sandboxing | Full container isolation (12+ hardening layers) |
+| **Cleanup** | `--uninstall` removes everything | `--uninstall` removes container + image + secure .env wipe |
+| **Auto-troubleshooting** | Error messages + log file | Detects 15+ issues, auto-fixes most of them |
+| **Best for** | Your main machine, long-term use | Hackathons, quick experiments, shared machines |
+
+### Quick Start (Docker)
+
+```bash
+git clone https://github.com/shilpa-kulkarni-14/openclaw-secure-installer.git
+cd openclaw-secure-installer
+./docker-install.sh
+```
+
+That's three commands. The installer will:
+1. Run 9 pre-flight checks (Docker installed? Running? Compose? Permissions? Disk space? Port free? Network working?)
+2. Auto-fix what it can (start Docker Desktop, clean disk, remove stale containers, fix DNS)
+3. Ask for your Anthropic API key (validates format, retries on typos)
+4. Build the image (retries 3 times with different strategies if it fails)
+5. Start and health-check the container (diagnoses crashes if they happen)
+6. Run a 10-point security audit and auto-fix anything that's wrong
+
+With channel picker (hackathon mode):
+
+```bash
+./docker-install.sh --hackathon
+```
+
+### What Gets Auto-Fixed (You Never See These Errors)
+
+The installer automatically detects and fixes these problems — the same ones that stumped half the room at the Boston hackathon:
+
+| Problem | What the installer does |
+|---|---|
+| **Docker not installed** | Offers to install via Homebrew (Mac) or get.docker.com (Linux) |
+| **Docker not running** | Opens Docker Desktop (Mac) or starts the daemon (Linux), waits up to 60s |
+| **Permission denied** | Adds your user to the `docker` group, tells you to log out/in |
+| **Docker Compose missing** | Installs the Compose plugin or standalone binary |
+| **Docker version too old** | Warns and links to upgrade docs |
+| **Disk space low (<1GB)** | Offers to run `docker system prune` automatically |
+| **Port 18789 already in use** | Shows what's using it, offers alternatives |
+| **Stale container from previous run** | Auto-removes crashed/stopped containers |
+| **DNS broken inside Docker** | Adds Google DNS (8.8.8.8) as fallback, restarts daemon |
+| **Network unreachable (npm registry)** | Tests connectivity, suggests fixes for corporate proxies |
+| **API key typo** | Validates format (sk-ant-...), retries 3 times with guidance |
+| **API key is an OpenAI key** | Detects sk- prefix without ant-, warns but continues |
+| **Build fails (no cache)** | Retries with `--no-cache`, then pulls fresh base image |
+| **Container crashes on start** | Reads exit code + logs, diagnoses (missing key, permission, OOM) |
+| **.env permissions too open** | Auto-fixes to chmod 600 |
+| **.env accidentally tracked by git** | Warns and shows exact git rm command |
+| **Corrupt config JSON** | Backs up and regenerates |
+
+### The `--doctor` Command
+
+Something not working? Run the doctor:
+
+```bash
+./docker-install.sh --doctor
+```
+
+This runs a comprehensive diagnostic that checks:
+- Docker daemon status and version
+- Container state (running/stopped/crashed) with recent logs
+- .env file existence, permissions, and API key format
+- Port binding (localhost-only or exposed?)
+- Gateway health check response
+- Network connectivity to Anthropic API
+
+If it finds problems, it offers to fix them automatically. Example output:
+
+```
+  Docker Environment
+  ✓ Docker daemon is running
+  ℹ Docker version: 25.0.3
+
+  Container State
+  ✗ Container exited (code: 1)
+  Last 10 log lines:
+    ✗ ERROR: No Anthropic API key found.
+    How to fix this:
+    1. Edit the .env file in the project folder...
+
+  ↻ Auto-fix: Remove crashed container and restart? [Y/n]: y
+  ✓ Container restarted
+
+  Configuration
+  ✓ .env file exists
+  ⚠ .env permissions: 644 (should be 600)
+  ↻ Auto-fix: Setting .env permissions to 600
+  ✓ API key format looks valid (sk-ant-...)
+
+  Found 2 problem(s) — all fixed automatically.
+```
+
+### Step-by-Step: Docker + Telegram (Example)
+
+Here's the complete flow for a beginner setting up an AI agent on Telegram using Docker.
+
+#### What you'll need
+
+- A computer with **Docker Desktop** installed ([download here](https://docker.com/products/docker-desktop))
+- A **Telegram account** (free at [telegram.org](https://telegram.org))
+- An **Anthropic API key** (free tier at [console.anthropic.com](https://console.anthropic.com))
+- ~5 minutes
+
+#### Step 1: Get your Anthropic API key
+
+1. Go to [console.anthropic.com](https://console.anthropic.com) and create an account
+2. Click **API Keys** in the left sidebar
+3. Click **Create Key**, name it "openclaw", copy the key (starts with `sk-ant-`)
+
+#### Step 2: Create your Telegram bot
+
+This is easier than it sounds — Telegram has a special bot that creates bots for you.
+
+1. Open Telegram and search for **@BotFather**
+2. Send the message: `/newbot`
+3. BotFather will ask you for a **name** — type something like `My OpenClaw Agent`
+4. BotFather will ask for a **username** — type something like `myopenclaw_bot` (must end in `bot`)
+5. BotFather will reply with your **HTTP API token** — it looks like `7123456789:AAF1kx...`. **Copy this token.**
+
+#### Step 3: Run the Docker installer
+
+```bash
+git clone https://github.com/shilpa-kulkarni-14/openclaw-secure-installer.git
+cd openclaw-secure-installer
+./docker-install.sh --hackathon
+```
+
+You'll see:
+
+```
+  🦞 OpenClaw Docker Installer v2.0.0
+  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[1/5] Pre-flight checks
+  ✓ Docker is installed
+  ✓ Docker daemon is running
+  ✓ Docker Compose available (v2.24.0)
+  ✓ Port 18789 is available
+```
+
+#### Step 4: Enter your API key
+
+```
+[2/5] Configuring API keys
+
+  ℹ  Your API key connects OpenClaw to the Claude AI.
+  ℹ  Get one free at: https://console.anthropic.com
+
+  Anthropic API key (sk-ant-...): ▊
+```
+
+Paste the key from Step 1 and press Enter (nothing shows on screen — that's the security working).
+
+If you mistype it, the installer tells you what's wrong and lets you retry:
+
+```
+  ⚠  That doesn't look like a valid Anthropic key.
+
+  A valid key:
+    • Starts with sk-ant-
+    • Is about 100+ characters long
+    • Get yours at: https://console.anthropic.com/settings/keys
+
+  ℹ  Let's try again (attempt 2/3)...
+```
+
+Press Enter to skip the optional OpenAI key.
+
+#### Step 5: Select Telegram
+
+The channel picker appears. Type `3` for Telegram:
+
+```
+  Select channels to enable:
+     1) Slack                        Team chat & chat-ops
+     2) Discord                      Community servers & bots
+     3) Telegram                     Personal & group messaging
+     ...
+
+  Select [s]: 3
+
+  ✓  Enabled: Telegram
+  ℹ  Telegram: Message @BotFather → /newbot → get HTTP API token
+```
+
+#### Step 6: Wait for the build (~1-2 minutes)
+
+```
+[3/5] Building and starting OpenClaw
+  ℹ  Building Docker image (this takes ~1-2 minutes the first time)...
+  ✓  Docker image built
+  ℹ  Starting OpenClaw agent...
+  ✓  OpenClaw agent is running and healthy
+```
+
+If the build fails, the installer automatically retries with different strategies (no cache, fresh base image) before giving up.
+
+#### Step 7: Configure your Telegram token
+
+Your agent is running. Now tell it about your Telegram bot:
+
+```bash
+docker exec -it openclaw-agent openclaw configure
+```
+
+When prompted, paste your Telegram bot token from Step 2.
+
+#### Step 8: Talk to your bot!
+
+Open Telegram, find your bot by the username you chose (e.g., `@myopenclaw_bot`), and send it a message. The AI agent will respond.
+
+#### Step 9: Verify security
+
+The installer shows a 10-point scorecard automatically:
+
+```
+  Security Scorecard (Docker)
+  ┌──────────────────────────────────────────┬────────┐
+  │ Container running                        │  ✓     │
+  │ Port bound to localhost only             │  ✓     │
+  │ Running as non-root (openclaw)           │  ✓     │
+  │ API key file permissions (600)           │  ✓     │
+  │ Linux capabilities dropped               │  ✓     │
+  │ Privilege escalation blocked             │  ✓     │
+  │ Read-only root filesystem                │  ✓     │
+  │ Memory limit set (512MB)                 │  ✓     │
+  │ PID namespace isolated                   │  ✓     │
+  │ .env protected by .gitignore             │  ✓     │
+  └──────────────────────────────────────────┴────────┘
+  Score: 10/10 — HARDENED
+```
+
+### Docker Commands Reference
+
+| What you want to do | Command |
+|---|---|
+| Start the agent | `./docker-install.sh` |
+| Start with channel picker | `./docker-install.sh --hackathon` |
+| Stop the agent | `./docker-install.sh --stop` |
+| Check if it's running | `./docker-install.sh --status` |
+| Diagnose and fix problems | `./docker-install.sh --doctor` |
+| See live logs | `docker logs -f openclaw-agent` |
+| Restart after config change | `docker compose restart` |
+| Preview without doing anything | `./docker-install.sh --dry-run` |
+| Remove everything | `./docker-install.sh --uninstall` |
+| Edit API keys | Edit `.env` then `docker compose restart` |
+| Add a skill | `docker exec -it openclaw-agent openclaw skill install <name>` |
+
+### Docker Security: 12 Layers of Protection
+
+The Docker version has **additional** security that the native installer can't provide:
+
+| # | Protection | How it works |
+|---|---|---|
+| 1 | **Full process isolation** | Agent runs in its own container, completely separate from your system |
+| 2 | **Read-only filesystem** | Container can't modify its own binaries (prevents tampering/malware persistence) |
+| 3 | **All capabilities dropped** | Every Linux capability removed — agent has zero kernel-level powers |
+| 4 | **No privilege escalation** | `no-new-privileges` prevents any process from gaining root inside container |
+| 5 | **Resource limits** | Max 512MB RAM, 1 CPU, 100 processes — prevents runaway/fork bombs |
+| 6 | **Non-root user** | Runs as `openclaw` user with `/sbin/nologin` shell — not root |
+| 7 | **Localhost-only port** | Port 18789 mapped to `127.0.0.1` — not accessible from your network |
+| 8 | **Network isolation** | Custom bridge network — agent can't see host network services |
+| 9 | **DNS hardening** | Pinned to Cloudflare (1.1.1.1) + Google (8.8.8.8) — prevents DNS hijacking |
+| 10 | **Log rotation** | Max 10MB x 3 files — prevents log-based disk exhaustion |
+| 11 | **SSRF protection** | Skill sandbox blocks cloud metadata endpoints (AWS/GCP/Azure/Alibaba) |
+| 12 | **Secure uninstall** | `.env` overwritten with random data before deletion |
+
+### Entrypoint Security (Inside the Container)
+
+Every time the container starts, the entrypoint script:
+
+1. **Loads and validates API keys** — checks format, detects wrong key types (e.g., OpenAI key in Anthropic field)
+2. **Masks secrets in logs** — keys appear as `sk-ant-a1...f4 (108 chars)`, never the full key
+3. **Trims whitespace** — fixes the most common copy-paste bug
+4. **Sanitizes channel names** — strips unexpected characters before writing to config
+5. **Validates JSON config** — if config is corrupted, backs it up and regenerates
+6. **Tests DNS resolution** — warns if the container can't reach Anthropic's API
+7. **Checks binary integrity** — verifies OpenClaw binary exists and config dir is writable
+
+### Files Created
+
+```
+openclaw-secure-installer/
+├── docker-install.sh          # The installer you run (auto-troubleshooting built in)
+├── docker-compose.yml         # Container config (12 security layers)
+├── Dockerfile                 # Multi-stage minimal image (Alpine-based)
+├── docker/
+│   └── entrypoint.sh          # Startup: validates, secures, starts
+├── .env.example               # Template for API keys
+├── .env                       # Your actual API keys (git-ignored, chmod 600)
+└── .gitignore                 # Ensures .env is never committed
+```
 
 ---
 

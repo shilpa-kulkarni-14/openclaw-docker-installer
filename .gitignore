@@ -1,0 +1,14 @@
+# Environment files (contain API keys — never commit)
+.env
+.env.local
+.env.*.local
+
+# Docker secrets
+secrets/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

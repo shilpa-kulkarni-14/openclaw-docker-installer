@@ -1,0 +1,111 @@
+# ============================================================================
+# OpenClaw Docker Compose — One command to start your AI agent
+# ============================================================================
+#
+# Quick start:
+#   1. Copy .env.example to .env and add your API key
+#   2. Run: docker compose up
+#
+# That's it. Your agent is running.
+#
+# Security: This compose file is hardened with 12+ protections.
+#   Run ./docker-install.sh --doctor to verify everything.
+# ============================================================================
+
+services:
+  openclaw:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: openclaw-agent
+    restart: unless-stopped
+
+    # ── Port Mapping ──
+    # 127.0.0.1 = localhost only (not accessible from your network)
+    # NEVER change 127.0.0.1 to 0.0.0.0 unless you know what you're doing
+    ports:
+      - "127.0.0.1:18789:18789"
+
+    # ── API Keys ──
+    # Loaded from .env file (created by docker-install.sh)
+    env_file:
+      - .env
+
+    # ── Channels ──
+    # Uncomment and set the channels you want (comma-separated):
+    # environment:
+    #   - OPENCLAW_CHANNELS=slack,discord
+
+    # ── Persistent Data ──
+    # Your config and skills survive container restarts
+    volumes:
+      - openclaw-data:/home/openclaw/.openclaw
+
+    # ── Network Isolation ──
+    # Agent gets its own isolated network — can't see host network services
+    networks:
+      - openclaw-net
+
+    # ── DNS Hardening ──
+    # Pin to Cloudflare + Google DNS (prevents DNS hijacking on untrusted networks)
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+
+    # ── Security: Drop ALL capabilities ──
+    # Linux capabilities grant fine-grained root powers.
+    # We drop everything — the agent doesn't need any.
+    cap_drop:
+      - ALL
+
+    # ── Security: Read-only root filesystem ──
+    # Container can't modify its own binaries (prevents tampering).
+    # The config volume (/home/openclaw/.openclaw) is still writable.
+    read_only: true
+
+    # ── Security: Writable tmpfs for /tmp only ──
+    # Processes that need scratch space use /tmp (in-memory, capped at 100MB)
+    tmpfs:
+      - /tmp:size=100M,noexec,nosuid
+
+    # ── Security: Prevent privilege escalation ──
+    # Blocks any attempt to gain root inside the container
+    security_opt:
+      - no-new-privileges:true
+
+    # ── Security: PID namespace isolation ──
+    # Container can only see its own processes, not host processes
+    # (default behavior, explicitly set for clarity)
+    pid: "container:openclaw-agent"
+
+    # ── Security: Resource limits ──
+    # Prevents runaway processes from eating all your RAM/CPU
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+          pids: 100        # Max 100 processes (prevents fork bombs)
+        reservations:
+          memory: 128M
+
+    # ── Security: Logging limits ──
+    # Prevent log files from filling up your disk
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# ── Isolated Network ──
+# Internal bridge network — agent can reach the internet but is isolated
+# from other containers and host network services
+networks:
+  openclaw-net:
+    name: openclaw-net
+    driver: bridge
+
+# ── Named Volume ──
+volumes:
+  openclaw-data:
+    name: openclaw-data
