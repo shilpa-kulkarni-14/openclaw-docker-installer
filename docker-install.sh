@@ -1791,18 +1791,39 @@ verify_and_finish() {
   # ── Summary ──
   echo ""
   echo -e "  ${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
-  echo -e "  ${BOLD}${GREEN}Your OpenClaw agent is running!${RESET}"
-  echo ""
-  echo -e "  ${BOLD}Open in your browser:${RESET}"
-  echo -e "    ${CYAN}${UNDERLINE}http://localhost:${GATEWAY_PORT}${RESET}"
-  echo ""
-  echo -e "  ${DIM}This is the OpenClaw Control Panel where you can:${RESET}"
-  echo -e "  ${DIM}  • Configure channels (Slack, Discord, Telegram, etc.)${RESET}"
-  echo -e "  ${DIM}  • Manage skills and agent behavior${RESET}"
-  echo -e "  ${DIM}  • Monitor agent activity and logs${RESET}"
-  echo ""
-  echo -e "  ${BOLD}Next step:${RESET} Connect a chat channel"
-  echo -e "    Run: ${CYAN}docker exec -it $CONTAINER_NAME openclaw configure${RESET}"
+
+  # Only show the success message + URL if the container is actually running and healthy
+  local final_health
+  final_health="$(docker inspect --format='{{.State.Health.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo 'none')"
+  local final_state
+  final_state="$(docker inspect --format='{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo 'unknown')"
+
+  if [[ "$final_state" == "running" ]]; then
+    echo -e "  ${BOLD}${GREEN}Your OpenClaw agent is running!${RESET}"
+    echo ""
+    echo -e "  ${BOLD}Open in your browser:${RESET}"
+    echo -e "    ${CYAN}${UNDERLINE}http://localhost:${GATEWAY_PORT}${RESET}"
+    echo ""
+    echo -e "  ${DIM}This is the OpenClaw Control Panel where you can:${RESET}"
+    echo -e "  ${DIM}  • Configure channels (Slack, Discord, Telegram, etc.)${RESET}"
+    echo -e "  ${DIM}  • Manage skills and agent behavior${RESET}"
+    echo -e "  ${DIM}  • Monitor agent activity and logs${RESET}"
+    echo ""
+    echo -e "  ${BOLD}Next step:${RESET} Connect a chat channel"
+    echo -e "    Run: ${CYAN}docker exec -it $CONTAINER_NAME openclaw configure${RESET}"
+  else
+    echo -e "  ${BOLD}${YELLOW}OpenClaw installed but container is not running (state: ${final_state}).${RESET}"
+    echo ""
+    echo -e "  ${BOLD}To start it:${RESET}"
+    echo -e "    ${CYAN}docker compose up -d${RESET}"
+    echo ""
+    echo -e "  ${BOLD}Once running, open:${RESET}"
+    echo -e "    ${CYAN}${UNDERLINE}http://localhost:${GATEWAY_PORT}${RESET}"
+    echo ""
+    echo -e "  ${BOLD}To diagnose:${RESET}"
+    echo -e "    ${CYAN}./docker-install.sh --doctor${RESET}"
+  fi
+
   echo ""
   echo -e "  ${BOLD}Everyday commands:${RESET}"
   echo -e "    See logs:         ${CYAN}docker logs -f $CONTAINER_NAME${RESET}"
