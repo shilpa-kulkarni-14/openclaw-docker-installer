@@ -55,7 +55,23 @@ cd openclaw-secure-installer
 
 That's it. The installer builds the image, starts the container, and verifies everything is secure.
 
-### Step 4: Connect a chat channel
+### Step 4: Open the OpenClaw Control Panel
+
+Once the installer finishes, open your browser and go to:
+
+```
+http://localhost:18789
+```
+
+This is the **OpenClaw Control Panel** — a web dashboard where you can:
+- Configure and manage chat channels
+- Set up skills and agent behavior
+- Monitor agent activity and logs
+- Test your agent in real time
+
+### Step 5: Connect a chat channel
+
+From the Control Panel, or via the command line:
 
 ```bash
 docker exec -it openclaw-agent openclaw configure
@@ -228,6 +244,7 @@ Open Telegram, find `@myopenclaw_bot`, send a message. The AI responds.
 |---|---|
 | Install and start | `./docker-install.sh` |
 | Install with channel picker | `./docker-install.sh --hackathon` |
+| **Open Control Panel** | **`http://localhost:18789`** |
 | Stop the agent | `./docker-install.sh --stop` |
 | Check if running | `./docker-install.sh --status` |
 | Diagnose problems | `./docker-install.sh --doctor` |

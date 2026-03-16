@@ -649,6 +649,14 @@ That's three commands. The installer will:
 5. Start and health-check the container (diagnoses crashes if they happen)
 6. Run a 10-point security audit and auto-fix anything that's wrong
 
+Once complete, open the **OpenClaw Control Panel** in your browser:
+
+```
+http://localhost:18789
+```
+
+From there you can configure channels, manage skills, and monitor your agent.
+
 With channel picker (hackathon mode):
 
 ```bash
