@@ -24,11 +24,43 @@
 
 set -euo pipefail
 
+# ── OS Detection ──────────────────────────────────────────────────────────────
+# Detect OS early so we can set paths and behavior correctly.
+# Windows users run this via Git Bash, MSYS2, or WSL.
+
+detect_os() {
+  local uname_out
+  uname_out="$(uname -s 2>/dev/null || echo 'Unknown')"
+
+  case "$uname_out" in
+    Darwin)           HOST_OS="macos" ;;
+    Linux)
+      # Check if running inside WSL (Windows Subsystem for Linux)
+      if grep -qi microsoft /proc/version 2>/dev/null; then
+        HOST_OS="wsl"
+      else
+        HOST_OS="linux"
+      fi
+      ;;
+    MINGW*|MSYS*|CYGWIN*)  HOST_OS="windows" ;;
+    *)                      HOST_OS="unknown" ;;
+  esac
+}
+
+detect_os
+
 # ── Globals ─────────────────────────────────────────────────────────────────
 
 INSTALLER_VERSION="2.0.0"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-LOG_FILE="/tmp/openclaw-docker-install-$(date +%Y%m%d-%H%M%S).log"
+
+# Temp directory: Windows Git Bash uses /tmp mapped to AppData, which works fine
+if [[ "$HOST_OS" == "windows" ]]; then
+  LOG_FILE="${TEMP:-/tmp}/openclaw-docker-install-$(date +%Y%m%d-%H%M%S).log"
+else
+  LOG_FILE="/tmp/openclaw-docker-install-$(date +%Y%m%d-%H%M%S).log"
+fi
+
 ENV_FILE="$SCRIPT_DIR/.env"
 COMPOSE_FILE="$SCRIPT_DIR/docker-compose.yml"
 CONTAINER_NAME="openclaw-agent"
@@ -78,6 +110,11 @@ banner() {
   echo ""
   echo -e "${BOLD}${RED}  🦞 OpenClaw Docker Installer ${DIM}v${INSTALLER_VERSION}${RESET}"
   echo -e "  ${DIM}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
+  if [[ "$HOST_OS" == "windows" ]]; then
+    echo -e "  ${DIM}Running on Windows (Git Bash/MSYS2)${RESET}"
+  elif [[ "$HOST_OS" == "wsl" ]]; then
+    echo -e "  ${DIM}Running on WSL (Windows Subsystem for Linux)${RESET}"
+  fi
   echo ""
 }
 
@@ -192,12 +229,9 @@ check_docker_installed() {
   echo -e "  It's like a mini computer inside your computer — safe and easy to clean up."
   echo ""
 
-  local os_name
-  os_name="$(uname -s)"
-
   # Offer to auto-install on supported platforms
-  case "$os_name" in
-    Darwin)
+  case "$HOST_OS" in
+    macos)
       if command_exists brew; then
         echo -e "  ${BOLD}Homebrew detected.${RESET} We can install Docker for you."
         echo ""
@@ -228,7 +262,7 @@ check_docker_installed() {
       echo -e "    → Then open Docker from Applications"
       echo ""
       ;;
-    Linux)
+    linux|wsl)
       echo -e "  ${BOLD}We can try to install Docker for you.${RESET}"
       echo ""
       if prompt_yn "Auto-install Docker via get.docker.com?" "y"; then
@@ -262,6 +296,24 @@ check_docker_installed() {
       echo -e "    → Run: ${BOLD}sudo dnf install docker-ce${RESET}"
       echo ""
       ;;
+    windows)
+      echo -e "  ${BOLD}To install Docker on Windows:${RESET}"
+      echo ""
+      echo -e "    ${CYAN}Step 1: Install Docker Desktop${RESET}"
+      echo -e "    → Go to ${UNDERLINE}https://docker.com/products/docker-desktop${RESET}"
+      echo -e "    → Click \"Download for Windows\""
+      echo -e "    → Run the installer (.exe)"
+      echo -e "    → Restart your computer if prompted"
+      echo ""
+      echo -e "    ${CYAN}Step 2: Open Docker Desktop${RESET}"
+      echo -e "    → Search for \"Docker Desktop\" in the Start Menu"
+      echo -e "    → Wait for the whale icon in the system tray to stop animating"
+      echo ""
+      echo -e "    ${CYAN}Step 3: Open Git Bash and re-run this script${RESET}"
+      echo -e "    → Right-click in the project folder → \"Git Bash Here\""
+      echo -e "    → Run: ${BOLD}./docker-install.sh${RESET}"
+      echo ""
+      ;;
     *)
       echo -e "  Visit ${UNDERLINE}https://docs.docker.com/get-docker/${RESET} for install instructions."
       echo ""
@@ -283,8 +335,8 @@ check_docker_running() {
   warn "Docker is installed but not running"
 
   # ── Auto-fix: Try to start Docker ──
-  case "$(uname -s)" in
-    Darwin)
+  case "$HOST_OS" in
+    macos)
       fix "Opening Docker Desktop..."
       open -a Docker 2>/dev/null || true
 
@@ -313,7 +365,59 @@ check_docker_running() {
       echo -e "  ${DIM}If Docker Desktop won't start, try restarting your computer.${RESET}"
       exit 1
       ;;
-    Linux)
+    windows)
+      fix "Trying to start Docker Desktop..."
+      # On Windows Git Bash, try to launch Docker Desktop via cmd
+      cmd.exe /c "start \"\" \"C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe\"" >> "$LOG_FILE" 2>&1 || \
+        powershell.exe -Command "Start-Process 'Docker Desktop'" >> "$LOG_FILE" 2>&1 || true
+
+      info "Waiting for Docker to start (this can take 30-60 seconds)..."
+      local wait_count=0
+      while [[ $wait_count -lt 90 ]]; do
+        if docker info &>/dev/null 2>&1; then
+          success "Docker is now running"
+          return 0
+        fi
+        sleep 2
+        wait_count=$((wait_count + 2))
+        if [[ $((wait_count % 10)) -eq 0 ]]; then
+          info "Still waiting... (${wait_count}s)"
+        fi
+      done
+
+      error "Docker Desktop didn't start in time."
+      echo ""
+      echo -e "  ${BOLD}Try these steps:${RESET}"
+      echo -e "    1. Open ${BOLD}Docker Desktop${RESET} from the Start Menu"
+      echo -e "    2. Wait for the whale icon in your system tray to stop animating"
+      echo -e "    3. Re-run: ${BOLD}./docker-install.sh${RESET}"
+      echo ""
+      echo -e "  ${DIM}If Docker Desktop won't start, try restarting your computer.${RESET}"
+      exit 1
+      ;;
+    wsl)
+      # WSL uses Docker Desktop from Windows host, or dockerd directly
+      if command_exists systemctl; then
+        fix "Starting Docker daemon via systemctl..."
+        sudo systemctl start docker >> "$LOG_FILE" 2>&1 && {
+          success "Docker daemon started"
+          return 0
+        }
+      fi
+      error "Docker is not running."
+      echo ""
+      echo -e "  ${BOLD}If using Docker Desktop for Windows:${RESET}"
+      echo -e "    1. Open ${BOLD}Docker Desktop${RESET} on Windows"
+      echo -e "    2. Go to Settings → Resources → WSL Integration"
+      echo -e "    3. Enable integration with your WSL distro"
+      echo -e "    4. Re-run: ${BOLD}./docker-install.sh${RESET}"
+      echo ""
+      echo -e "  ${BOLD}If using native Docker in WSL:${RESET}"
+      echo -e "    ${BOLD}sudo service docker start${RESET}"
+      echo ""
+      exit 1
+      ;;
+    linux)
       fix "Starting Docker daemon..."
       if command_exists systemctl; then
         sudo systemctl start docker >> "$LOG_FILE" 2>&1 && {
@@ -333,6 +437,11 @@ check_docker_running() {
       echo -e "    ${BOLD}sudo systemctl start docker${RESET}"
       echo -e "    ${BOLD}sudo systemctl enable docker${RESET}  (to start on boot)"
       echo ""
+      exit 1
+      ;;
+    *)
+      error "Could not start Docker."
+      echo -e "  Please start Docker manually, then re-run: ${BOLD}./docker-install.sh${RESET}"
       exit 1
       ;;
   esac
@@ -356,7 +465,7 @@ check_docker_compose() {
   # ── Auto-fix: Try to install docker-compose ──
   warn "Docker Compose not found"
 
-  if [[ "$(uname -s)" == "Linux" ]]; then
+  if [[ "$HOST_OS" == "linux" || "$HOST_OS" == "wsl" ]]; then
     fix "Installing Docker Compose plugin..."
     sudo apt-get update -qq >> "$LOG_FILE" 2>&1 || true
     sudo apt-get install -y docker-compose-plugin >> "$LOG_FILE" 2>&1 || {
@@ -378,8 +487,8 @@ check_docker_compose() {
 }
 
 check_docker_permissions() {
-  # Only relevant on Linux
-  if [[ "$(uname -s)" != "Linux" ]]; then return 0; fi
+  # Only relevant on Linux / WSL
+  if [[ "$HOST_OS" != "linux" && "$HOST_OS" != "wsl" ]]; then return 0; fi
 
   if docker ps &>/dev/null 2>&1; then
     verbose "Docker permissions OK"
@@ -480,8 +589,64 @@ check_disk_space() {
   fi
 }
 
+# ── Cross-platform port check helpers ──
+# Returns 0 if port is in use, 1 if free
+_is_port_in_use() {
+  local port="$1"
+  if command_exists lsof; then
+    lsof -i ":$port" -sTCP:LISTEN &>/dev/null 2>&1 && return 0
+  elif command_exists ss; then
+    ss -tlnp 2>/dev/null | grep -q ":$port " && return 0
+  elif command_exists netstat; then
+    # Windows netstat uses different flags than Linux
+    if [[ "$HOST_OS" == "windows" ]]; then
+      netstat -an 2>/dev/null | grep -q "LISTENING.*:$port " && return 0
+      netstat -an 2>/dev/null | grep -q ":$port .*LISTENING" && return 0
+    else
+      netstat -tln 2>/dev/null | grep -q ":$port " && return 0
+    fi
+  fi
+  return 1
+}
+
+# Get PID and name of process using a port (sets _PORT_PID and _PORT_NAME)
+_get_port_blocker() {
+  local port="$1"
+  _PORT_PID=""
+  _PORT_NAME=""
+
+  if command_exists lsof; then
+    _PORT_NAME="$(lsof -i ":$port" -sTCP:LISTEN 2>/dev/null | awk 'NR==2 {print $1}' || echo '')"
+    _PORT_PID="$(lsof -i ":$port" -sTCP:LISTEN -t 2>/dev/null | head -1 || echo '')"
+  elif [[ "$HOST_OS" == "windows" ]] && command_exists netstat; then
+    # On Windows, netstat -ano shows PID in last column
+    local line
+    line="$(netstat -ano 2>/dev/null | grep "LISTENING" | grep ":$port " | head -1 || echo '')"
+    if [[ -n "$line" ]]; then
+      _PORT_PID="$(echo "$line" | awk '{print $NF}' || echo '')"
+      if [[ -n "$_PORT_PID" ]]; then
+        _PORT_NAME="$(tasklist.exe //FI "PID eq $_PORT_PID" //FO CSV //NH 2>/dev/null | head -1 | cut -d',' -f1 | tr -d '"' || echo 'unknown')"
+      fi
+    fi
+  fi
+}
+
+# Kill a process by PID (cross-platform)
+_kill_process() {
+  local pid="$1"
+  if [[ "$HOST_OS" == "windows" ]]; then
+    taskkill.exe //PID "$pid" //F >> "$LOG_FILE" 2>&1 || kill "$pid" 2>/dev/null || true
+  else
+    kill "$pid" 2>/dev/null || true
+    sleep 2
+    if kill -0 "$pid" 2>/dev/null; then
+      kill -9 "$pid" 2>/dev/null || true
+      sleep 1
+    fi
+  fi
+}
+
 check_port_available() {
-  local port_in_use=false
   local our_container_running=false
 
   # Check if our container is already running
@@ -496,7 +661,6 @@ check_port_available() {
   if command_exists lsof; then
     local non_docker_pid=""
     non_docker_pid="$(lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN -t 2>/dev/null | while read -r pid; do
-      # Skip PIDs that belong to Docker/containerd
       local cmd_name
       cmd_name="$(ps -p "$pid" -o comm= 2>/dev/null || echo '')"
       if [[ "$cmd_name" != "com.docker"* && "$cmd_name" != "containerd"* && "$cmd_name" != "docker"* ]]; then
@@ -511,14 +675,26 @@ check_port_available() {
       info "This will block the container from starting"
       if prompt_yn "Stop it to free the port?" "y"; then
         fix "Stopping process $non_docker_pid..."
-        kill "$non_docker_pid" 2>/dev/null || true
-        sleep 2
-        if kill -0 "$non_docker_pid" 2>/dev/null; then
-          kill -9 "$non_docker_pid" 2>/dev/null || true
-          sleep 1
-        fi
+        _kill_process "$non_docker_pid"
         success "Port blocker removed"
         FIXES_APPLIED+=("Stopped $non_docker_name (PID $non_docker_pid) blocking port $GATEWAY_PORT")
+      else
+        warn "Continuing — container may fail to bind port"
+      fi
+      return 0
+    fi
+  elif [[ "$HOST_OS" == "windows" ]]; then
+    # On Windows, check for non-Docker processes via netstat
+    _get_port_blocker "$GATEWAY_PORT"
+    if [[ -n "$_PORT_PID" && "$_PORT_NAME" != "com.docker"* && "$_PORT_NAME" != "Docker"* ]]; then
+      warn "Process $_PORT_NAME (PID $_PORT_PID) is using port $GATEWAY_PORT"
+      info "This will block the container from starting"
+      if prompt_yn "Stop it to free the port?" "y"; then
+        fix "Stopping process $_PORT_PID..."
+        _kill_process "$_PORT_PID"
+        sleep 2
+        success "Port blocker removed"
+        FIXES_APPLIED+=("Stopped $_PORT_NAME (PID $_PORT_PID) blocking port $GATEWAY_PORT")
       else
         warn "Continuing — container may fail to bind port"
       fi
@@ -532,51 +708,26 @@ check_port_available() {
   fi
 
   # Check if something else is using the port
-  if command_exists lsof; then
-    if lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN &>/dev/null 2>&1; then
-      port_in_use=true
-    fi
-  elif command_exists ss; then
-    if ss -tlnp 2>/dev/null | grep -q ":$GATEWAY_PORT "; then
-      port_in_use=true
-    fi
-  elif command_exists netstat; then
-    if netstat -tln 2>/dev/null | grep -q ":$GATEWAY_PORT "; then
-      port_in_use=true
-    fi
-  fi
-
-  if [[ "$port_in_use" == true ]]; then
+  if _is_port_in_use "$GATEWAY_PORT"; then
     warn "Port $GATEWAY_PORT is already in use by another application"
 
     # Identify what's using it
-    local blocker_name=""
-    local blocker_pid=""
-    if command_exists lsof; then
-      blocker_name="$(lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN 2>/dev/null | awk 'NR==2 {print $1}' || echo '')"
-      blocker_pid="$(lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN -t 2>/dev/null | head -1 || echo '')"
-      if [[ -n "$blocker_name" ]]; then
-        info "Used by: ${DIM}${blocker_name} (PID ${blocker_pid})${RESET}"
-      fi
+    _get_port_blocker "$GATEWAY_PORT"
+    if [[ -n "$_PORT_NAME" ]]; then
+      info "Used by: ${DIM}${_PORT_NAME} (PID ${_PORT_PID})${RESET}"
     fi
 
     # ── Auto-fix: If it's a node process (likely native OpenClaw), offer to kill it ──
-    if [[ "$blocker_name" == "node" && -n "$blocker_pid" ]]; then
+    if [[ "$_PORT_NAME" == "node"* && -n "$_PORT_PID" ]]; then
       info "This looks like a previous OpenClaw run (native installer)"
       if prompt_yn "Stop it to free the port?" "y"; then
-        fix "Stopping process $blocker_pid..."
-        kill "$blocker_pid" 2>/dev/null || true
-        sleep 2
-        # Verify port is free
-        if command_exists lsof && lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN &>/dev/null 2>&1; then
-          kill -9 "$blocker_pid" 2>/dev/null || true
-          sleep 1
-        fi
-        if command_exists lsof && lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN &>/dev/null 2>&1; then
+        fix "Stopping process $_PORT_PID..."
+        _kill_process "$_PORT_PID"
+        if _is_port_in_use "$GATEWAY_PORT"; then
           warn "Process didn't stop. Container may fail to bind port."
         else
           success "Port $GATEWAY_PORT is now free"
-          FIXES_APPLIED+=("Stopped Node.js process (PID $blocker_pid) blocking port $GATEWAY_PORT")
+          FIXES_APPLIED+=("Stopped Node.js process (PID $_PORT_PID) blocking port $GATEWAY_PORT")
         fi
       else
         warn "Continuing — container may fail to bind port"
@@ -595,8 +746,12 @@ check_port_available() {
       echo ""
       echo -e "  ${BOLD}Options:${RESET}"
       echo -e "    1. Stop the application using port $GATEWAY_PORT"
-      if [[ -n "$blocker_pid" ]]; then
-        echo -e "       ${CYAN}kill $blocker_pid${RESET}"
+      if [[ -n "$_PORT_PID" ]]; then
+        if [[ "$HOST_OS" == "windows" ]]; then
+          echo -e "       ${CYAN}taskkill /PID $_PORT_PID /F${RESET}"
+        else
+          echo -e "       ${CYAN}kill $_PORT_PID${RESET}"
+        fi
       fi
       echo -e "    2. Edit ${BOLD}docker-compose.yml${RESET} to use a different port"
       echo -e "       Change: ${CYAN}127.0.0.1:18789:18789${RESET} → ${CYAN}127.0.0.1:18790:18789${RESET}"
@@ -687,8 +842,8 @@ check_network_connectivity() {
   echo -e "    • A corporate firewall/proxy is blocking connections"
   echo ""
 
-  # ── Auto-fix: DNS issues ──
-  if [[ "$(uname -s)" == "Linux" ]]; then
+  # ── Auto-fix: DNS issues (Linux/WSL only — macOS/Windows Docker Desktop manages its own DNS) ──
+  if [[ "$HOST_OS" == "linux" || "$HOST_OS" == "wsl" ]]; then
     info "Trying Google DNS as a workaround..."
     if docker run --rm --dns=8.8.8.8 alpine:3.19 sh -c "wget -q --spider http://registry.npmjs.org/ 2>/dev/null" >> "$LOG_FILE" 2>&1; then
       fix "Docker DNS was broken. Adding Google DNS (8.8.8.8) as fallback."
@@ -1209,37 +1364,30 @@ diagnose_start_failure() {
     # Remove our own failed container first (compose created it but couldn't start it)
     docker rm -f "$CONTAINER_NAME" >> "$LOG_FILE" 2>&1 || true
 
-    # Identify what's actually holding the port
-    local blocker_pid=""
-    local blocker_name=""
-    if command_exists lsof; then
-      blocker_name="$(lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN 2>/dev/null | awk 'NR==2 {print $1}' || echo '')"
-      blocker_pid="$(lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN -t 2>/dev/null | head -1 || echo '')"
-      if [[ -n "$blocker_name" ]]; then
-        info "Blocked by: $blocker_name (PID $blocker_pid)"
-      fi
+    # Identify what's actually holding the port (cross-platform)
+    _get_port_blocker "$GATEWAY_PORT"
+    if [[ -n "$_PORT_NAME" ]]; then
+      info "Blocked by: $_PORT_NAME (PID $_PORT_PID)"
     fi
 
     # Kill the process that's holding the port
-    if [[ -n "$blocker_pid" ]]; then
-      fix "Stopping process $blocker_pid ($blocker_name) to free port $GATEWAY_PORT..."
-      kill "$blocker_pid" >> "$LOG_FILE" 2>&1 || true
-      sleep 2
-      # Verify it's gone, force kill if needed
-      if command_exists lsof && lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN &>/dev/null 2>&1; then
-        kill -9 "$blocker_pid" >> "$LOG_FILE" 2>&1 || true
-        sleep 1
-      fi
+    if [[ -n "$_PORT_PID" ]]; then
+      fix "Stopping process $_PORT_PID ($_PORT_NAME) to free port $GATEWAY_PORT..."
+      _kill_process "$_PORT_PID"
       # Final check
-      if command_exists lsof && lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN &>/dev/null 2>&1; then
-        warn "Port $GATEWAY_PORT is still in use after killing PID $blocker_pid"
+      if _is_port_in_use "$GATEWAY_PORT"; then
+        warn "Port $GATEWAY_PORT is still in use after killing PID $_PORT_PID"
       else
         success "Port $GATEWAY_PORT is now free"
-        FIXES_APPLIED+=("Killed $blocker_name (PID $blocker_pid) blocking port $GATEWAY_PORT")
+        FIXES_APPLIED+=("Killed $_PORT_NAME (PID $_PORT_PID) blocking port $GATEWAY_PORT")
       fi
     else
       warn "Could not identify what's using port $GATEWAY_PORT"
-      info "Try manually: ${BOLD}lsof -i :$GATEWAY_PORT${RESET}"
+      if [[ "$HOST_OS" == "windows" ]]; then
+        info "Try manually: ${BOLD}netstat -ano | findstr :$GATEWAY_PORT${RESET}"
+      else
+        info "Try manually: ${BOLD}lsof -i :$GATEWAY_PORT${RESET}"
+      fi
     fi
 
   # ── Container name conflict ──
@@ -1688,9 +1836,11 @@ run_doctor() {
   else
     error "Docker daemon is not running"
     problems=$((problems + 1))
-    case "$(uname -s)" in
-      Darwin) info "Fix: Open Docker Desktop from Applications" ;;
-      Linux)  info "Fix: ${BOLD}sudo systemctl start docker${RESET}" ;;
+    case "$HOST_OS" in
+      macos)   info "Fix: Open Docker Desktop from Applications" ;;
+      windows) info "Fix: Open Docker Desktop from the Start Menu" ;;
+      wsl)     info "Fix: Open Docker Desktop on Windows, or run: ${BOLD}sudo service docker start${RESET}" ;;
+      linux)   info "Fix: ${BOLD}sudo systemctl start docker${RESET}" ;;
     esac
   fi
 
