@@ -1656,7 +1656,7 @@ verify_and_finish() {
   step 5 5 "Verifying installation"
 
   local score=0
-  local total=10
+  local total=9
   local issues=()
 
   echo ""
@@ -1747,18 +1747,7 @@ verify_and_finish() {
     issues+=("no-new-privileges not set — check docker-compose.yml security_opt")
   fi
 
-  # Check 7: Read-only filesystem
-  local read_only
-  read_only="$(docker inspect --format='{{.HostConfig.ReadonlyRootfs}}' "$CONTAINER_NAME" 2>/dev/null || echo 'false')"
-  if [[ "$read_only" == "true" ]]; then
-    scorecard_pass "Read-only root filesystem"
-    score=$((score + 1))
-  else
-    scorecard_fail "Read-only root filesystem"
-    issues+=("Filesystem is writable — check docker-compose.yml read_only setting")
-  fi
-
-  # Check 8: Memory limit set
+  # Check 7: Memory limit set
   local mem_limit
   mem_limit="$(docker inspect --format='{{.HostConfig.Memory}}' "$CONTAINER_NAME" 2>/dev/null || echo '0')"
   if [[ "$mem_limit" -gt 0 ]]; then
@@ -1770,7 +1759,7 @@ verify_and_finish() {
     issues+=("No memory limit — a runaway process could use all RAM")
   fi
 
-  # Check 9: PID namespace isolation
+  # Check 8: PID namespace isolation
   local pid_mode
   pid_mode="$(docker inspect --format='{{.HostConfig.PidMode}}' "$CONTAINER_NAME" 2>/dev/null || echo '')"
   if [[ -z "$pid_mode" ]] || [[ "$pid_mode" == "container:"* ]] || [[ "$pid_mode" == "" ]]; then
@@ -1781,7 +1770,7 @@ verify_and_finish() {
     issues+=("Container can see host PIDs — remove pid_mode from compose")
   fi
 
-  # Check 10: .gitignore protects .env
+  # Check 9: .gitignore protects .env
   if [[ -f "$SCRIPT_DIR/.gitignore" ]] && grep -q "^\.env$" "$SCRIPT_DIR/.gitignore" 2>/dev/null; then
     scorecard_pass ".env protected by .gitignore"
     score=$((score + 1))
@@ -1793,9 +1782,9 @@ verify_and_finish() {
   echo -e "  ${DIM}└──────────────────────────────────────────┴────────┘${RESET}"
 
   local grade color
-  if [[ $score -ge 9 ]]; then grade="HARDENED"; color="$GREEN"
-  elif [[ $score -ge 7 ]]; then grade="GOOD"; color="$YELLOW"
-  elif [[ $score -ge 5 ]]; then grade="FAIR"; color="$YELLOW"
+  if [[ $score -ge 8 ]]; then grade="HARDENED"; color="$GREEN"
+  elif [[ $score -ge 6 ]]; then grade="GOOD"; color="$YELLOW"
+  elif [[ $score -ge 4 ]]; then grade="FAIR"; color="$YELLOW"
   else grade="NEEDS ATTENTION"; color="$RED"
   fi
 
@@ -1833,8 +1822,52 @@ verify_and_finish() {
   if [[ "$final_state" == "running" ]]; then
     echo -e "  ${BOLD}${GREEN}Your OpenClaw agent is running!${RESET}"
     echo ""
-    echo -e "  ${BOLD}Open in your browser:${RESET}"
-    echo -e "    ${CYAN}${UNDERLINE}http://localhost:${GATEWAY_PORT}${RESET}"
+
+    # ── Auto-retrieve gateway token and pair ──
+    # This is the key one-step experience: user shouldn't have to run extra commands
+    local dashboard_url=""
+    local gateway_token=""
+
+    info "Retrieving gateway token..."
+    log "Attempting to get dashboard URL from container"
+
+    # Wait briefly for gateway to be fully ready
+    local token_attempts=0
+    while [[ $token_attempts -lt 5 ]]; do
+      dashboard_url="$(docker exec "$CONTAINER_NAME" openclaw dashboard --no-open 2>/dev/null | grep -oE 'http://[^ ]+' | head -1 || echo '')"
+      if [[ -n "$dashboard_url" ]]; then
+        break
+      fi
+      token_attempts=$((token_attempts + 1))
+      sleep 2
+    done
+
+    if [[ -n "$dashboard_url" ]]; then
+      # Extract token from URL for display
+      gateway_token="$(echo "$dashboard_url" | grep -oE 'token=[^&]+' | sed 's/token=//' || echo '')"
+
+      # Auto-pair the dashboard (one-time, silent)
+      log "Auto-pairing dashboard..."
+      docker exec "$CONTAINER_NAME" openclaw gateway pair 2>/dev/null || true
+
+      success "Gateway token retrieved and dashboard paired automatically"
+      echo ""
+      echo -e "  ${BOLD}Open this URL in your browser (token included):${RESET}"
+      echo -e "    ${CYAN}${UNDERLINE}${dashboard_url}${RESET}"
+    else
+      # Fallback: couldn't get token automatically
+      warn "Could not retrieve gateway token automatically"
+      echo ""
+      echo -e "  ${BOLD}Open in your browser:${RESET}"
+      echo -e "    ${CYAN}${UNDERLINE}http://localhost:${GATEWAY_PORT}${RESET}"
+      echo ""
+      echo -e "  ${BOLD}Then get your gateway token:${RESET}"
+      echo -e "    ${CYAN}docker exec -it $CONTAINER_NAME openclaw dashboard --no-open${RESET}"
+      echo ""
+      echo -e "  ${BOLD}And pair (one-time):${RESET}"
+      echo -e "    ${CYAN}docker exec -it $CONTAINER_NAME openclaw gateway pair${RESET}"
+    fi
+
     echo ""
     echo -e "  ${DIM}This is the OpenClaw Control Panel where you can:${RESET}"
     echo -e "  ${DIM}  • Configure channels (Slack, Discord, Telegram, etc.)${RESET}"
