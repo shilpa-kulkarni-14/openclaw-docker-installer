@@ -60,13 +60,15 @@ services:
 
     # ── Security: Read-only root filesystem ──
     # Container can't modify its own binaries (prevents tampering).
-    # The config volume (/home/openclaw/.openclaw) is still writable.
+    # Writable paths: /home/openclaw/.openclaw (volume), /tmp (tmpfs), /home/openclaw/.npm (tmpfs)
     read_only: true
 
-    # ── Security: Writable tmpfs for /tmp only ──
-    # Processes that need scratch space use /tmp (in-memory, capped at 100MB)
+    # ── Security: Writable tmpfs mounts ──
+    # /tmp — scratch space for Node.js runtime (JIT, native addons need exec)
+    # /home/openclaw/.npm — npm cache writes during runtime
     tmpfs:
-      - /tmp:size=100M,noexec,nosuid
+      - /tmp:size=200M,nosuid
+      - /home/openclaw/.npm:size=50M,nosuid
 
     # ── Security: Prevent privilege escalation ──
     # Blocks any attempt to gain root inside the container
@@ -83,11 +85,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: "1.0"
-          pids: 100        # Max 100 processes (prevents fork bombs)
+          memory: 1G
+          cpus: "2.0"
+          pids: 200        # Max 200 processes (prevents fork bombs)
         reservations:
-          memory: 128M
+          memory: 256M
 
     # ── Security: Logging limits ──
     # Prevent log files from filling up your disk
