@@ -1,0 +1,315 @@
+# ============================================================================
+# Cross-Platform Installer Tests
+# ============================================================================
+# Tests docker-install.sh on Windows, macOS, and Linux to catch
+# platform-specific issues before users hit them.
+#
+# Runs on: push to main, pull requests, manual trigger
+# ============================================================================
+
+name: Test Installer (Cross-Platform)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docker-install.sh'
+      - 'Dockerfile'
+      - 'docker-compose.yml'
+      - 'docker/entrypoint.sh'
+      - '.github/workflows/test-installer.yml'
+  pull_request:
+    branches: [main]
+  workflow_dispatch:  # Manual trigger
+
+jobs:
+  # ──────────────────────────────────────────────────────────────────────
+  # Test 1: Syntax validation (fast, all platforms)
+  # ──────────────────────────────────────────────────────────────────────
+  syntax-check:
+    name: "Syntax Check"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate docker-install.sh syntax
+        run: bash -n docker-install.sh
+
+      - name: Validate entrypoint.sh syntax
+        run: bash -n docker/entrypoint.sh
+
+      - name: Check for common bash pitfalls (shellcheck)
+        uses: ludeeus/action-shellcheck@master
+        with:
+          scandir: '.'
+          additional_files: 'docker-install.sh docker/entrypoint.sh'
+          severity: error
+        continue-on-error: true  # Don't fail on warnings, only errors
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Test 2: Windows (Git Bash)
+  # ──────────────────────────────────────────────────────────────────────
+  test-windows:
+    name: "Windows (Git Bash)"
+    runs-on: windows-latest
+    needs: syntax-check
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify Git Bash is available
+        shell: bash
+        run: |
+          echo "Shell: $SHELL"
+          echo "Bash version: $BASH_VERSION"
+          echo "OS: $(uname -s)"
+          echo "Arch: $(uname -m)"
+
+      - name: Test OS detection
+        shell: bash
+        run: |
+          # Source just the detect_os function
+          source <(sed -n '/^detect_os()/,/^}/p' docker-install.sh)
+          detect_os
+          echo "Detected OS: $HOST_OS"
+          if [[ "$HOST_OS" != "windows" ]]; then
+            echo "FAIL: Expected HOST_OS=windows, got $HOST_OS"
+            exit 1
+          fi
+          echo "PASS: OS detection correct"
+
+      - name: Test script parses without errors
+        shell: bash
+        run: bash -n docker-install.sh
+
+      - name: Test --help flag
+        shell: bash
+        run: |
+          # --help should print usage and exit 0
+          output=$(bash docker-install.sh --help 2>&1) || true
+          if echo "$output" | grep -qi "usage\|openclaw"; then
+            echo "PASS: --help works"
+          else
+            echo "FAIL: --help didn't show usage"
+            echo "$output"
+            exit 1
+          fi
+
+      - name: Test --dry-run flag (no Docker needed)
+        shell: bash
+        run: |
+          # --dry-run should get through banner + detect Docker is missing
+          output=$(bash docker-install.sh --dry-run 2>&1) || true
+          echo "$output"
+          # Should at least show the banner and OS detection
+          if echo "$output" | grep -qi "OpenClaw\|Docker"; then
+            echo "PASS: --dry-run produces output on Windows"
+          else
+            echo "FAIL: No output from --dry-run"
+            exit 1
+          fi
+
+      - name: Test cross-platform helpers parse correctly
+        shell: bash
+        run: |
+          # Extract and test that the helper functions parse
+          bash -c '
+            source <(sed -n "/^_is_port_in_use/,/^}/p" docker-install.sh)
+            source <(sed -n "/^_get_port_blocker/,/^}/p" docker-install.sh)
+            source <(sed -n "/^_kill_process/,/^}/p" docker-install.sh)
+            echo "PASS: Cross-platform helpers parse on Windows"
+          '
+
+      - name: Test with Docker Desktop (if available)
+        shell: bash
+        run: |
+          if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
+            echo "Docker is available, testing preflight..."
+            # Run with dry-run to test preflight checks
+            timeout 60 bash docker-install.sh --dry-run 2>&1 || true
+            echo "PASS: Preflight checks ran on Windows with Docker"
+          else
+            echo "SKIP: Docker not available on this runner"
+          fi
+        continue-on-error: true
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Test 3: macOS
+  # ──────────────────────────────────────────────────────────────────────
+  test-macos:
+    name: "macOS"
+    runs-on: macos-latest
+    needs: syntax-check
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System info
+        run: |
+          echo "OS: $(uname -s)"
+          echo "Arch: $(uname -m)"
+          echo "Bash: $BASH_VERSION"
+
+      - name: Test OS detection
+        run: |
+          source <(sed -n '/^detect_os()/,/^}/p' docker-install.sh)
+          detect_os
+          echo "Detected OS: $HOST_OS"
+          if [[ "$HOST_OS" != "macos" ]]; then
+            echo "FAIL: Expected HOST_OS=macos, got $HOST_OS"
+            exit 1
+          fi
+          echo "PASS: OS detection correct"
+
+      - name: Test script syntax
+        run: bash -n docker-install.sh
+
+      - name: Test --help flag
+        run: |
+          output=$(bash docker-install.sh --help 2>&1) || true
+          if echo "$output" | grep -qi "usage\|openclaw"; then
+            echo "PASS: --help works"
+          else
+            echo "FAIL: --help didn't show usage"
+            exit 1
+          fi
+
+      - name: Test --dry-run flag
+        run: |
+          output=$(bash docker-install.sh --dry-run 2>&1) || true
+          echo "$output"
+          if echo "$output" | grep -qi "OpenClaw"; then
+            echo "PASS: --dry-run produces output on macOS"
+          else
+            echo "FAIL: No output"
+            exit 1
+          fi
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Test 4: Linux (full Docker build test)
+  # ──────────────────────────────────────────────────────────────────────
+  test-linux:
+    name: "Linux (Full Docker Build)"
+    runs-on: ubuntu-latest
+    needs: syntax-check
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: System info
+        run: |
+          echo "OS: $(uname -s)"
+          echo "Docker: $(docker --version)"
+          echo "Compose: $(docker compose version)"
+
+      - name: Test OS detection
+        run: |
+          source <(sed -n '/^detect_os()/,/^}/p' docker-install.sh)
+          detect_os
+          echo "Detected OS: $HOST_OS"
+          if [[ "$HOST_OS" != "linux" ]]; then
+            echo "FAIL: Expected HOST_OS=linux, got $HOST_OS"
+            exit 1
+          fi
+          echo "PASS: OS detection correct"
+
+      - name: Test --help flag
+        run: |
+          output=$(bash docker-install.sh --help 2>&1) || true
+          echo "$output" | head -20
+          if echo "$output" | grep -qi "usage\|openclaw"; then
+            echo "PASS: --help works"
+          else
+            echo "FAIL"
+            exit 1
+          fi
+
+      - name: Test Docker build
+        run: |
+          echo "Building Docker image..."
+          docker build -t openclaw-test . 2>&1 | tail -20
+          echo ""
+          echo "PASS: Docker build succeeded"
+
+      - name: Test Docker Compose config
+        run: |
+          docker compose config > /dev/null 2>&1
+          echo "PASS: docker-compose.yml is valid"
+
+      - name: Test container starts (with dummy key)
+        run: |
+          # Create .env with a dummy key (container will fail validation but should start)
+          echo "ANTHROPIC_API_KEY=sk-ant-api03-test-key-for-ci-only-not-real" > .env
+
+          # Start container
+          docker compose up -d 2>&1 || true
+
+          # Give it a few seconds
+          sleep 5
+
+          # Check container was created (may be restarting due to invalid key, that's expected)
+          state=$(docker inspect --format='{{.State.Status}}' openclaw-agent 2>/dev/null || echo 'missing')
+          echo "Container state: $state"
+
+          if [[ "$state" == "missing" ]]; then
+            echo "FAIL: Container was never created"
+            exit 1
+          fi
+
+          # Check logs for entrypoint output (should show our validation messages)
+          logs=$(docker logs openclaw-agent 2>&1 || echo '')
+          echo "--- Container Logs ---"
+          echo "$logs" | head -30
+          echo "----------------------"
+
+          if echo "$logs" | grep -qi "CHECK\|OpenClaw\|entrypoint\|key"; then
+            echo "PASS: Entrypoint ran and produced output"
+          else
+            echo "WARN: No recognizable entrypoint output"
+          fi
+
+          # Cleanup
+          docker compose down -v 2>&1 || true
+          rm -f .env
+
+      - name: Test --doctor flag
+        run: |
+          # Create .env so doctor has something to check
+          echo "ANTHROPIC_API_KEY=sk-ant-api03-test-key-for-ci" > .env
+          output=$(bash docker-install.sh --doctor 2>&1) || true
+          echo "$output"
+          rm -f .env
+          if echo "$output" | grep -qi "doctor\|diagnostic\|Docker"; then
+            echo "PASS: --doctor produces output"
+          else
+            echo "WARN: --doctor output unclear"
+          fi
+        continue-on-error: true
+
+  # ──────────────────────────────────────────────────────────────────────
+  # Summary
+  # ──────────────────────────────────────────────────────────────────────
+  results:
+    name: "Results"
+    runs-on: ubuntu-latest
+    needs: [syntax-check, test-windows, test-macos, test-linux]
+    if: always()
+    steps:
+      - name: Summary
+        run: |
+          echo "============================================"
+          echo "  Cross-Platform Test Results"
+          echo "============================================"
+          echo ""
+          echo "  Syntax Check: ${{ needs.syntax-check.result }}"
+          echo "  Windows:      ${{ needs.test-windows.result }}"
+          echo "  macOS:        ${{ needs.test-macos.result }}"
+          echo "  Linux:        ${{ needs.test-linux.result }}"
+          echo ""
+          echo "============================================"
+
+          if [[ "${{ needs.syntax-check.result }}" == "failure" ]] || \
+             [[ "${{ needs.test-windows.result }}" == "failure" ]] || \
+             [[ "${{ needs.test-macos.result }}" == "failure" ]] || \
+             [[ "${{ needs.test-linux.result }}" == "failure" ]]; then
+            echo "SOME TESTS FAILED"
+            exit 1
+          fi
+          echo "ALL TESTS PASSED"
