@@ -297,18 +297,24 @@ echo "  Configuring gateway..."
 if [ ! -f "$CONFIG_FILE" ]; then
   # ── Generate new config ──
 
-  # Generate auth token
-  GATEWAY_TOKEN=""
-  if command -v openssl >/dev/null 2>&1; then
-    GATEWAY_TOKEN="$(openssl rand -hex 32 2>/dev/null)" || true
-  fi
+  # Generate auth token (or use one provided by the installer via env var)
+  GATEWAY_TOKEN="${OPENCLAW_GATEWAY_TOKEN:-}"
 
-  # Fallback: use /dev/urandom if openssl fails
-  if [ -z "$GATEWAY_TOKEN" ] || [ "${#GATEWAY_TOKEN}" -lt 32 ]; then
-    echo "  ⚠ openssl rand failed — using /dev/urandom fallback"
-    if [ -r /dev/urandom ]; then
-      GATEWAY_TOKEN="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+  if [ -z "$GATEWAY_TOKEN" ]; then
+    # No token provided — generate one
+    if command -v openssl >/dev/null 2>&1; then
+      GATEWAY_TOKEN="$(openssl rand -hex 32 2>/dev/null)" || true
     fi
+
+    # Fallback: use /dev/urandom if openssl fails
+    if [ -z "$GATEWAY_TOKEN" ] || [ "${#GATEWAY_TOKEN}" -lt 32 ]; then
+      echo "  ⚠ openssl rand failed — using /dev/urandom fallback"
+      if [ -r /dev/urandom ]; then
+        GATEWAY_TOKEN="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+      fi
+    fi
+  else
+    echo "  ✓ Using gateway token from OPENCLAW_GATEWAY_TOKEN env var"
   fi
 
   # Final check

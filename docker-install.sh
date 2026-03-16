@@ -80,6 +80,9 @@ FLAG_DRY_RUN=false
 # Track auto-fixes applied
 FIXES_APPLIED=()
 
+# Gateway token (generated during configure_keys, used in verify_and_finish)
+GENERATED_GATEWAY_TOKEN=""
+
 # ── Color Output ────────────────────────────────────────────────────────────
 
 setup_colors() {
@@ -893,6 +896,19 @@ configure_keys() {
     existing_key="$(grep '^ANTHROPIC_API_KEY=' "$ENV_FILE" | cut -d= -f2-)"
     if validate_api_key "$existing_key"; then
       success "API key already configured and valid in .env"
+      # Read existing gateway token if present
+      if grep -q '^OPENCLAW_GATEWAY_TOKEN=' "$ENV_FILE" 2>/dev/null; then
+        GENERATED_GATEWAY_TOKEN="$(grep '^OPENCLAW_GATEWAY_TOKEN=' "$ENV_FILE" | cut -d= -f2-)"
+      else
+        # Existing .env doesn't have a gateway token — add one
+        local gt=""
+        gt="$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' 2>/dev/null || printf '%04x%04x%04x%04x%04x%04x%04x%04x' $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM)"
+        GENERATED_GATEWAY_TOKEN="$gt"
+        echo "" >> "$ENV_FILE"
+        echo "# Gateway token — auto-generated" >> "$ENV_FILE"
+        echo "OPENCLAW_GATEWAY_TOKEN=${gt}" >> "$ENV_FILE"
+        log "Added OPENCLAW_GATEWAY_TOKEN to existing .env"
+      fi
       if prompt_yn "Want to update your API key?" "n"; then
         : # fall through to prompts
       else
@@ -963,6 +979,24 @@ configure_keys() {
     channels="$(select_channels_interactive)"
   fi
 
+  # ── Generate gateway token ──
+  # We generate it here so the installer knows the token and can print
+  # the full dashboard URL at the end — true one-step experience.
+  local gateway_token=""
+  if command -v openssl >/dev/null 2>&1; then
+    gateway_token="$(openssl rand -hex 32 2>/dev/null)" || true
+  fi
+  if [[ -z "$gateway_token" ]] || [[ ${#gateway_token} -lt 32 ]]; then
+    gateway_token="$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' 2>/dev/null)" || true
+  fi
+  if [[ -z "$gateway_token" ]] || [[ ${#gateway_token} -lt 32 ]]; then
+    # Last resort: use $RANDOM-based fallback
+    gateway_token="$(printf '%04x%04x%04x%04x%04x%04x%04x%04x' $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM)"
+  fi
+
+  # Save token globally so verify_and_finish can use it
+  GENERATED_GATEWAY_TOKEN="$gateway_token"
+
   # ── Write .env file ──
   if dry_run "Write API keys to .env"; then return 0; fi
 
@@ -972,6 +1006,10 @@ configure_keys() {
 # This file is git-ignored and never committed.
 
 ANTHROPIC_API_KEY=${anthropic_key}
+
+# Gateway token — used to authenticate with the dashboard
+# The installer auto-generates this and prints the full URL at the end
+OPENCLAW_GATEWAY_TOKEN=${gateway_token}
 EOF
 
   if [[ -n "$openai_key" ]]; then
@@ -1823,49 +1861,27 @@ verify_and_finish() {
     echo -e "  ${BOLD}${GREEN}Your OpenClaw agent is running!${RESET}"
     echo ""
 
-    # ── Auto-retrieve gateway token and pair ──
-    # This is the key one-step experience: user shouldn't have to run extra commands
-    local dashboard_url=""
-    local gateway_token=""
+    # ── Auto-pair the dashboard (silent, best-effort) ──
+    log "Auto-pairing dashboard..."
+    docker exec "$CONTAINER_NAME" openclaw gateway pair 2>/dev/null || true
 
-    info "Retrieving gateway token..."
-    log "Attempting to get dashboard URL from container"
-
-    # Wait briefly for gateway to be fully ready
-    local token_attempts=0
-    while [[ $token_attempts -lt 5 ]]; do
-      dashboard_url="$(docker exec "$CONTAINER_NAME" openclaw dashboard --no-open 2>/dev/null | grep -oE 'http://[^ ]+' | head -1 || echo '')"
-      if [[ -n "$dashboard_url" ]]; then
-        break
-      fi
-      token_attempts=$((token_attempts + 1))
-      sleep 2
-    done
-
-    if [[ -n "$dashboard_url" ]]; then
-      # Extract token from URL for display
-      gateway_token="$(echo "$dashboard_url" | grep -oE 'token=[^&]+' | sed 's/token=//' || echo '')"
-
-      # Auto-pair the dashboard (one-time, silent)
-      log "Auto-pairing dashboard..."
-      docker exec "$CONTAINER_NAME" openclaw gateway pair 2>/dev/null || true
-
-      success "Gateway token retrieved and dashboard paired automatically"
+    # ── Print the full dashboard URL with token ──
+    # We generated the token during configure_keys and passed it via env var,
+    # so we already know it — no need to exec into the container.
+    if [[ -n "$GENERATED_GATEWAY_TOKEN" ]]; then
+      local dashboard_url="http://localhost:${GATEWAY_PORT}/?token=${GENERATED_GATEWAY_TOKEN}"
+      success "Dashboard paired automatically"
       echo ""
-      echo -e "  ${BOLD}Open this URL in your browser (token included):${RESET}"
+      echo -e "  ${BOLD}Open this URL in your browser (token included — just click!):${RESET}"
+      echo ""
       echo -e "    ${CYAN}${UNDERLINE}${dashboard_url}${RESET}"
     else
-      # Fallback: couldn't get token automatically
-      warn "Could not retrieve gateway token automatically"
-      echo ""
+      # Fallback: token not available (e.g., .env already existed with a key)
       echo -e "  ${BOLD}Open in your browser:${RESET}"
       echo -e "    ${CYAN}${UNDERLINE}http://localhost:${GATEWAY_PORT}${RESET}"
       echo ""
-      echo -e "  ${BOLD}Then get your gateway token:${RESET}"
+      echo -e "  ${BOLD}Get your gateway token:${RESET}"
       echo -e "    ${CYAN}docker exec -it $CONTAINER_NAME openclaw dashboard --no-open${RESET}"
-      echo ""
-      echo -e "  ${BOLD}And pair (one-time):${RESET}"
-      echo -e "    ${CYAN}docker exec -it $CONTAINER_NAME openclaw gateway pair${RESET}"
     fi
 
     echo ""
