@@ -2000,6 +2000,243 @@ harden_and_verify() {
 }
 
 # ============================================================================
+# Channel-Specific Setup Instructions
+# ============================================================================
+# Prints step-by-step instructions for each selected channel so beginners
+# know exactly what to do before running `openclaw configure`.
+
+print_channel_instructions() {
+  local channels="$1"
+
+  for channel in $(echo "$channels" | tr ',' ' '); do
+    case "$channel" in
+      slack)
+        echo -e "  ${BOLD}${CYAN}Slack${RESET}"
+        echo -e "    1. Go to ${UNDERLINE}https://api.slack.com/apps${RESET}"
+        echo -e "    2. Click ${BOLD}Create New App${RESET} → ${BOLD}From scratch${RESET}"
+        echo -e "    3. Name it (e.g. \"OpenClaw\") and pick your workspace"
+        echo -e "    4. Go to ${BOLD}OAuth & Permissions${RESET} → add Bot Token Scopes:"
+        echo -e "       ${DIM}chat:write, channels:read, channels:history, groups:read,"
+        echo -e "       groups:history, im:read, im:history, im:write, app_mentions:read${RESET}"
+        echo -e "    5. Click ${BOLD}Install to Workspace${RESET} → copy the ${BOLD}Bot User OAuth Token${RESET}"
+        echo -e "       ${DIM}(starts with xoxb-)${RESET}"
+        echo -e "    6. Go to ${BOLD}Basic Information${RESET} → ${BOLD}App-Level Tokens${RESET} → Generate one"
+        echo -e "       with scope ${BOLD}connections:write${RESET} → copy the ${BOLD}App Token${RESET}"
+        echo -e "       ${DIM}(starts with xapp-)${RESET}"
+        echo -e "    7. Go to ${BOLD}Socket Mode${RESET} → enable it"
+        echo -e "    8. Go to ${BOLD}Event Subscriptions${RESET} → enable → subscribe to:"
+        echo -e "       ${DIM}message.channels, message.groups, message.im, app_mention${RESET}"
+        echo ""
+        ;;
+      discord)
+        echo -e "  ${BOLD}${CYAN}Discord${RESET}"
+        echo -e "    1. Go to ${UNDERLINE}https://discord.com/developers/applications${RESET}"
+        echo -e "    2. Click ${BOLD}New Application${RESET} → name it (e.g. \"OpenClaw\")"
+        echo -e "    3. Go to the ${BOLD}Bot${RESET} tab"
+        echo -e "    4. Copy the ${BOLD}Token${RESET} (click \"Copy\" under the bot's username)"
+        echo -e "       ${DIM}If no token is shown, click \"Reset Token\" to generate one${RESET}"
+        echo -e "    5. Scroll down → enable ${BOLD}Message Content Intent${RESET}"
+        echo -e "    6. Go to ${BOLD}OAuth2${RESET} → ${BOLD}URL Generator${RESET}"
+        echo -e "       Scopes: ${DIM}bot, applications.commands${RESET}"
+        echo -e "       Bot Permissions: ${DIM}Send Messages, Read Message History${RESET}"
+        echo -e "    7. Copy the generated URL → open it → invite the bot to your server"
+        echo ""
+        ;;
+      telegram)
+        echo -e "  ${BOLD}${CYAN}Telegram${RESET}"
+        echo -e "    1. Open Telegram and search for ${BOLD}@BotFather${RESET}"
+        echo -e "    2. Send ${BOLD}/newbot${RESET}"
+        echo -e "    3. Choose a display name (e.g. \"My OpenClaw Agent\")"
+        echo -e "    4. Choose a username (must end in ${BOLD}bot${RESET}, e.g. \"myopenclaw_bot\")"
+        echo -e "    5. Copy the ${BOLD}HTTP API token${RESET} BotFather gives you"
+        echo -e "       ${DIM}(looks like 123456789:ABCdefGHIjklMNO...)${RESET}"
+        echo ""
+        ;;
+      whatsapp)
+        echo -e "  ${BOLD}${CYAN}WhatsApp${RESET}"
+        echo -e "    1. Go to ${UNDERLINE}https://business.facebook.com${RESET}"
+        echo -e "    2. Create or select a Meta Business account"
+        echo -e "    3. Go to ${UNDERLINE}https://developers.facebook.com${RESET} → create an app"
+        echo -e "    4. Add the ${BOLD}WhatsApp${RESET} product to your app"
+        echo -e "    5. Go to ${BOLD}WhatsApp → API Setup${RESET}"
+        echo -e "    6. Copy the ${BOLD}Temporary Access Token${RESET} and ${BOLD}Phone Number ID${RESET}"
+        echo -e "    7. Set up a webhook URL for incoming messages"
+        echo -e "       ${DIM}(requires a public URL — use ngrok for testing)${RESET}"
+        echo ""
+        ;;
+      msteams)
+        echo -e "  ${BOLD}${CYAN}Microsoft Teams${RESET}"
+        echo -e "    1. Go to ${UNDERLINE}https://portal.azure.com${RESET}"
+        echo -e "    2. Search for ${BOLD}Bot Services${RESET} → create an ${BOLD}Azure Bot${RESET}"
+        echo -e "    3. Under ${BOLD}Configuration${RESET}, note the ${BOLD}Microsoft App ID${RESET}"
+        echo -e "    4. Go to ${BOLD}Manage Password${RESET} → create a ${BOLD}Client Secret${RESET}"
+        echo -e "    5. Under ${BOLD}Channels${RESET} → add ${BOLD}Microsoft Teams${RESET}"
+        echo -e "    6. In Teams Admin Center, upload your bot as a custom app"
+        echo -e "       ${DIM}(or use Teams Developer Portal to create an app package)${RESET}"
+        echo ""
+        ;;
+      google-chat)
+        echo -e "  ${BOLD}${CYAN}Google Chat${RESET}"
+        echo -e "    1. Go to ${UNDERLINE}https://console.cloud.google.com${RESET}"
+        echo -e "    2. Create a project (or select an existing one)"
+        echo -e "    3. Enable the ${BOLD}Google Chat API${RESET}"
+        echo -e "    4. Go to ${BOLD}APIs & Services → Credentials${RESET}"
+        echo -e "    5. Create a ${BOLD}Service Account${RESET} → download the JSON key file"
+        echo -e "    6. In the Chat API settings, configure your bot and set the"
+        echo -e "       connection type to ${BOLD}App URL${RESET} or ${BOLD}Cloud Pub/Sub${RESET}"
+        echo ""
+        ;;
+      signal)
+        echo -e "  ${BOLD}${CYAN}Signal${RESET}"
+        echo -e "    1. Install ${BOLD}signal-cli${RESET}: ${UNDERLINE}https://github.com/AsamK/signal-cli${RESET}"
+        echo -e "    2. Register a phone number with Signal:"
+        echo -e "       ${CYAN}signal-cli -u +1YOURNUMBER register${RESET}"
+        echo -e "       ${CYAN}signal-cli -u +1YOURNUMBER verify CODE${RESET}"
+        echo -e "    3. The registered number will be used by OpenClaw to send/receive"
+        echo -e "       ${DIM}(requires a dedicated number — don't use your personal one)${RESET}"
+        echo ""
+        ;;
+      matrix)
+        echo -e "  ${BOLD}${CYAN}Matrix${RESET}"
+        echo -e "    1. Create a bot account on your Matrix homeserver"
+        echo -e "       ${DIM}(e.g. register @openclaw-bot:your-server.org)${RESET}"
+        echo -e "    2. Get an ${BOLD}Access Token${RESET} for the bot account:"
+        echo -e "       Log in via Element → Settings → Help & About → Access Token"
+        echo -e "    3. Note your ${BOLD}Homeserver URL${RESET} (e.g. https://matrix.your-server.org)"
+        echo -e "    4. Invite the bot to the rooms you want it in"
+        echo ""
+        ;;
+      irc)
+        echo -e "  ${BOLD}${CYAN}IRC${RESET}"
+        echo -e "    1. Choose an IRC server (e.g. irc.libera.chat)"
+        echo -e "    2. Pick a ${BOLD}nickname${RESET} for the bot (e.g. \"openclaw-bot\")"
+        echo -e "    3. Optionally register the nick with NickServ:"
+        echo -e "       ${DIM}/msg NickServ REGISTER password email@example.com${RESET}"
+        echo -e "    4. Note the ${BOLD}channels${RESET} to join (e.g. #my-channel)"
+        echo ""
+        ;;
+      mattermost)
+        echo -e "  ${BOLD}${CYAN}Mattermost${RESET}"
+        echo -e "    1. Log in to your Mattermost server as admin"
+        echo -e "    2. Go to ${BOLD}Integrations → Bot Accounts → Add Bot Account${RESET}"
+        echo -e "    3. Name it (e.g. \"OpenClaw\"), set role to ${BOLD}System Admin${RESET} or ${BOLD}Member${RESET}"
+        echo -e "    4. Copy the ${BOLD}Bot Access Token${RESET}"
+        echo -e "    5. Note your Mattermost ${BOLD}Server URL${RESET} (e.g. https://mattermost.example.com)"
+        echo ""
+        ;;
+      webchat)
+        echo -e "  ${BOLD}${CYAN}WebChat${RESET}"
+        echo -e "    No external setup needed — WebChat runs on the dashboard."
+        echo -e "    Open the dashboard URL above and start chatting."
+        echo ""
+        ;;
+      bluebubbles)
+        echo -e "  ${BOLD}${CYAN}BlueBubbles (iMessage)${RESET}"
+        echo -e "    1. Install BlueBubbles server on a Mac: ${UNDERLINE}https://bluebubbles.app${RESET}"
+        echo -e "    2. Set up the server and connect it to your iMessage account"
+        echo -e "    3. Go to ${BOLD}Settings → API${RESET} in BlueBubbles"
+        echo -e "    4. Copy the ${BOLD}Server URL${RESET} and ${BOLD}Password${RESET}"
+        echo ""
+        ;;
+      imessage)
+        echo -e "  ${BOLD}${CYAN}iMessage (Legacy)${RESET}"
+        echo -e "    Requires running on macOS with Messages.app signed in."
+        echo -e "    The bot reads/sends via AppleScript — no token needed."
+        echo -e "    ${DIM}Note: Only works when the container runs on a Mac host.${RESET}"
+        echo ""
+        ;;
+      twitch)
+        echo -e "  ${BOLD}${CYAN}Twitch${RESET}"
+        echo -e "    1. Go to ${UNDERLINE}https://dev.twitch.tv/console/apps${RESET}"
+        echo -e "    2. Click ${BOLD}Register Your Application${RESET}"
+        echo -e "    3. Set OAuth Redirect URL to ${DIM}http://localhost${RESET}"
+        echo -e "    4. Copy the ${BOLD}Client ID${RESET}"
+        echo -e "    5. Generate an ${BOLD}OAuth Token${RESET} at ${UNDERLINE}https://twitchapps.com/tmi/${RESET}"
+        echo -e "       ${DIM}(starts with oauth:)${RESET}"
+        echo -e "    6. Note the ${BOLD}channel name${RESET} to join"
+        echo ""
+        ;;
+      line)
+        echo -e "  ${BOLD}${CYAN}LINE${RESET}"
+        echo -e "    1. Go to ${UNDERLINE}https://developers.line.biz/console${RESET}"
+        echo -e "    2. Create a ${BOLD}Messaging API Channel${RESET}"
+        echo -e "    3. In the channel settings, copy the ${BOLD}Channel Access Token${RESET}"
+        echo -e "    4. Copy the ${BOLD}Channel Secret${RESET}"
+        echo -e "    5. Set the ${BOLD}Webhook URL${RESET} to your public endpoint"
+        echo -e "       ${DIM}(requires a public URL — use ngrok for testing)${RESET}"
+        echo ""
+        ;;
+      feishu)
+        echo -e "  ${BOLD}${CYAN}Feishu (Lark)${RESET}"
+        echo -e "    1. Go to ${UNDERLINE}https://open.feishu.cn/app${RESET} (or open.larksuite.com for Lark)"
+        echo -e "    2. Create a new app → go to ${BOLD}Credentials${RESET}"
+        echo -e "    3. Copy the ${BOLD}App ID${RESET} and ${BOLD}App Secret${RESET}"
+        echo -e "    4. Under ${BOLD}Event Subscriptions${RESET}, set your webhook URL"
+        echo -e "    5. Add the ${BOLD}im:message:receive_v1${RESET} event"
+        echo ""
+        ;;
+      nostr)
+        echo -e "  ${BOLD}${CYAN}Nostr${RESET}"
+        echo -e "    1. Generate a Nostr keypair (or use an existing one)"
+        echo -e "       ${CYAN}openssl rand -hex 32${RESET}"
+        echo -e "    2. The private key (hex) is your bot's identity"
+        echo -e "    3. Choose relay(s) to connect to (e.g. wss://relay.damus.io)"
+        echo ""
+        ;;
+      nextcloud-talk)
+        echo -e "  ${BOLD}${CYAN}Nextcloud Talk${RESET}"
+        echo -e "    1. Log in to your Nextcloud instance as admin"
+        echo -e "    2. Create a bot user account"
+        echo -e "    3. Generate an ${BOLD}App Password${RESET} for the bot user:"
+        echo -e "       Settings → Security → App Passwords"
+        echo -e "    4. Note the ${BOLD}Nextcloud URL${RESET} and bot ${BOLD}username${RESET}"
+        echo ""
+        ;;
+      synology-chat)
+        echo -e "  ${BOLD}${CYAN}Synology Chat${RESET}"
+        echo -e "    1. Open Synology Chat on your NAS"
+        echo -e "    2. Go to ${BOLD}Integration → Bots${RESET} → create a bot"
+        echo -e "    3. Copy the ${BOLD}Incoming Webhook URL${RESET} and ${BOLD}Outgoing Token${RESET}"
+        echo ""
+        ;;
+      tlon)
+        echo -e "  ${BOLD}${CYAN}Tlon (Urbit)${RESET}"
+        echo -e "    1. You need a running Urbit ship"
+        echo -e "    2. Get your ship's ${BOLD}URL${RESET} and ${BOLD}+code${RESET} (access key)"
+        echo -e "    3. The bot will connect to your ship's chat channels"
+        echo ""
+        ;;
+      zalo|zalo-personal)
+        echo -e "  ${BOLD}${CYAN}Zalo${RESET}"
+        echo -e "    1. Go to ${UNDERLINE}https://developers.zalo.me${RESET}"
+        echo -e "    2. Create an app → go to ${BOLD}Settings${RESET}"
+        echo -e "    3. Copy the ${BOLD}App ID${RESET} and ${BOLD}Secret Key${RESET}"
+        echo -e "    4. Generate an ${BOLD}OA Access Token${RESET} (for Official Account)"
+        echo ""
+        ;;
+      macos)
+        echo -e "  ${BOLD}${CYAN}macOS Native${RESET}"
+        echo -e "    No external setup needed — uses native macOS integration."
+        echo -e "    ${DIM}Note: Only works when the container runs on a Mac host.${RESET}"
+        echo ""
+        ;;
+      ios-android)
+        echo -e "  ${BOLD}${CYAN}iOS/Android${RESET}"
+        echo -e "    Install the OpenClaw companion app on your device."
+        echo -e "    The app will pair with this gateway automatically."
+        echo -e "    ${DIM}Check the OpenClaw docs for app download links.${RESET}"
+        echo ""
+        ;;
+      *)
+        echo -e "  ${BOLD}${CYAN}${channel}${RESET}"
+        echo -e "    See OpenClaw docs for setup instructions."
+        echo ""
+        ;;
+    esac
+  done
+}
+
+# ============================================================================
 # PHASE 5: Verification & Summary
 # ============================================================================
 
@@ -2253,8 +2490,22 @@ verify_and_finish() {
     fi
 
     echo ""
-    echo -e "  ${BOLD}Next step:${RESET} Connect a chat channel"
-    echo -e "    Run: ${CYAN}docker exec -it $CONTAINER_NAME openclaw configure${RESET}"
+
+    # ── Channel-specific setup instructions ──
+    local selected_channels=""
+    if [[ -f "$ENV_FILE" ]]; then
+      selected_channels="$(grep '^OPENCLAW_CHANNELS=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- || true)"
+    fi
+
+    if [[ -n "$selected_channels" ]]; then
+      echo -e "  ${BOLD}Next step:${RESET} Connect your channel(s)"
+      echo ""
+      print_channel_instructions "$selected_channels"
+    else
+      echo -e "  ${BOLD}Next step:${RESET} Connect a chat channel"
+    fi
+    echo -e "    ${BOLD}Then run:${RESET} ${CYAN}docker exec -it $CONTAINER_NAME openclaw configure${RESET}"
+    echo -e "    ${DIM}The wizard will ask you to paste the token(s) from above.${RESET}"
   else
     echo -e "  ${BOLD}${YELLOW}OpenClaw installed but container is not running (state: ${final_state}).${RESET}"
     echo ""
