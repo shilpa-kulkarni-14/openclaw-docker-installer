@@ -847,7 +847,7 @@ check_port_available() {
       if [[ "$cmd_name" != "com.docker"* && "$cmd_name" != "containerd"* && "$cmd_name" != "docker"* ]]; then
         echo "$pid"
       fi
-    done | head -1)"
+    done | head -1 || true)"
 
     if [[ -n "$non_docker_pid" ]]; then
       local non_docker_name
@@ -2169,13 +2169,9 @@ verify_and_finish() {
       GENERATED_GATEWAY_TOKEN="$(docker exec "$CONTAINER_NAME" sh -c 'cat /home/openclaw/.openclaw/openclaw.json 2>/dev/null' | grep -o '"token"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"token"[[:space:]]*:[[:space:]]*"//' | sed 's/"$//' || echo '')"
     fi
 
-    # ── Auto-pair the dashboard (silent, best-effort) ──
-    log "Auto-pairing dashboard..."
-    docker exec "$CONTAINER_NAME" openclaw gateway pair 2>/dev/null || true
-
     # ── Print the full dashboard URL with token ──
     if [[ -n "$GENERATED_GATEWAY_TOKEN" ]]; then
-      local dashboard_url="http://localhost:${GATEWAY_PORT}/?token=${GENERATED_GATEWAY_TOKEN}"
+      local dashboard_url="http://localhost:${GATEWAY_PORT}/#token=${GENERATED_GATEWAY_TOKEN}"
       success "Dashboard ready"
       echo ""
       echo -e "  ${BOLD}Open this URL in your browser (token included — just click!):${RESET}"
@@ -2195,6 +2191,42 @@ verify_and_finish() {
     echo -e "  ${DIM}  • Configure channels (Slack, Discord, Telegram, etc.)${RESET}"
     echo -e "  ${DIM}  • Manage skills and agent behavior${RESET}"
     echo -e "  ${DIM}  • Monitor agent activity and logs${RESET}"
+    echo ""
+
+    # ── Auto-approve device pairing ──
+    # When the user opens the dashboard URL, the browser sends a pairing request.
+    # We wait for it and auto-approve so the user doesn't have to do it manually.
+    echo -e "  ${BOLD}Waiting for you to open the dashboard...${RESET}"
+    info "Once you open the URL above, we'll auto-approve the connection."
+    echo ""
+
+    local pair_wait=0
+    local paired=false
+    while [[ $pair_wait -lt 120 ]]; do
+      # Check for pending pairing requests
+      local pending_id
+      pending_id="$(docker exec "$CONTAINER_NAME" openclaw devices list 2>/dev/null | grep -A1 'Request' | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 || true)"
+      if [[ -n "$pending_id" ]]; then
+        fix "Auto-approving device pairing..."
+        docker exec "$CONTAINER_NAME" openclaw devices approve "$pending_id" >> "$LOG_FILE" 2>&1 || true
+        success "Dashboard paired and ready to use"
+        paired=true
+        break
+      fi
+      sleep 2
+      pair_wait=$((pair_wait + 2))
+      if [[ $((pair_wait % 30)) -eq 0 && $pair_wait -gt 0 ]]; then
+        info "Still waiting... open the URL above in your browser"
+      fi
+    done
+
+    if [[ "$paired" != true ]]; then
+      echo ""
+      info "No pairing request detected. If the dashboard says 'pairing required':"
+      echo -e "    ${CYAN}docker exec openclaw-agent openclaw devices list${RESET}"
+      echo -e "    ${CYAN}docker exec openclaw-agent openclaw devices approve <request-id>${RESET}"
+    fi
+
     echo ""
     echo -e "  ${BOLD}Next step:${RESET} Connect a chat channel"
     echo -e "    Run: ${CYAN}docker exec -it $CONTAINER_NAME openclaw configure${RESET}"
