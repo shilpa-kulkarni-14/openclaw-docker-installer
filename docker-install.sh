@@ -844,7 +844,7 @@ check_port_available() {
     non_docker_pid="$(lsof -i ":$GATEWAY_PORT" -sTCP:LISTEN -t 2>/dev/null | while read -r pid; do
       local cmd_name
       cmd_name="$(ps -p "$pid" -o comm= 2>/dev/null || echo '')"
-      if [[ "$cmd_name" != "com.docker"* && "$cmd_name" != "containerd"* && "$cmd_name" != "docker"* ]]; then
+      if [[ "$cmd_name" != *"com.docker"* && "$cmd_name" != *"containerd"* && "$cmd_name" != *"docker"* && "$cmd_name" != *"Docker"* ]]; then
         echo "$pid"
       fi
     done | head -1 || true)"
@@ -956,6 +956,31 @@ check_existing_container() {
 
   case "$container_state" in
     running)
+      # Check if the container is healthy and working as expected
+      local health
+      health="$(docker inspect --format='{{.State.Health.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo 'unknown')"
+      if [[ "$health" == "healthy" ]]; then
+        echo ""
+        echo -e "  ${BOLD}${GREEN}OpenClaw is already running and healthy!${RESET}"
+        echo ""
+        # Show the dashboard URL
+        local token
+        token="$(grep '^OPENCLAW_GATEWAY_TOKEN=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- || true)"
+        if [[ -n "$token" ]]; then
+          echo -e "  ${BOLD}Dashboard:${RESET}"
+          echo -e "    ${CYAN}${UNDERLINE}http://localhost:${GATEWAY_PORT}/#token=${token}${RESET}"
+        else
+          echo -e "  ${BOLD}Dashboard:${RESET}"
+          echo -e "    ${CYAN}${UNDERLINE}http://localhost:${GATEWAY_PORT}${RESET}"
+        fi
+        echo ""
+        echo -e "  ${DIM}Useful commands:${RESET}"
+        echo -e "    ${CYAN}./docker-install.sh --status${RESET}      Check status"
+        echo -e "    ${CYAN}./docker-install.sh --doctor${RESET}      Diagnose problems"
+        echo -e "    ${CYAN}./docker-install.sh --stop${RESET}        Stop the agent"
+        echo ""
+        exit 0
+      fi
       warn "OpenClaw is already running"
       if prompt_yn "Restart with fresh configuration?" "y"; then
         fix "Stopping existing container..."
