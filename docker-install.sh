@@ -959,7 +959,7 @@ check_existing_container() {
   # If someone ran a different compose project (e.g., "openclaw" vs "openclaw-docker-installer"),
   # there may be leftover containers like "openclaw-openclaw-gateway-1" that conflict.
   local stale_containers
-  stale_containers="$(docker ps -a --format '{{.Names}}' 2>/dev/null | grep -i 'openclaw' | grep -v "$CONTAINER_NAME" || echo '')"
+  stale_containers="$(docker ps -a --format '{{.Names}}' 2>/dev/null | grep -i 'openclaw' 2>/dev/null | grep -v "$CONTAINER_NAME" 2>/dev/null || echo '')"
   if [[ -n "$stale_containers" ]]; then
     verbose "Found other openclaw containers: $stale_containers"
     while IFS= read -r stale; do
@@ -972,7 +972,7 @@ check_existing_container() {
 
   # ── Clean up stale networks from previous runs ──
   local stale_networks
-  stale_networks="$(docker network ls --format '{{.Name}}' 2>/dev/null | grep -i 'openclaw' || echo '')"
+  stale_networks="$(docker network ls --format '{{.Name}}' 2>/dev/null | grep -i 'openclaw' 2>/dev/null || echo '')"
   if [[ -n "$stale_networks" ]]; then
     while IFS= read -r net; do
       [[ -z "$net" ]] && continue
@@ -984,8 +984,24 @@ check_existing_container() {
 
 check_network_connectivity() {
   # Quick check that we can reach the internet (needed for npm install in Dockerfile)
-  if docker run --rm alpine:3.19 sh -c "wget -q --spider http://registry.npmjs.org/ 2>/dev/null" >> "$LOG_FILE" 2>&1; then
+  # Use a short timeout so this doesn't hang on slow networks.
+  # On a fresh Docker install, this may need to pull the alpine image first,
+  # so we use `|| true` to prevent set -e from killing the script.
+  local net_ok=false
+  if docker run --rm --network=host alpine:3.19 sh -c "wget -q --spider --timeout=10 http://registry.npmjs.org/ 2>/dev/null" >> "$LOG_FILE" 2>&1; then
+    net_ok=true
+  fi
+
+  if [[ "$net_ok" == true ]]; then
     verbose "Network connectivity OK (can reach npm registry)"
+    return 0
+  fi
+
+  # The docker run itself might have failed (e.g., can't pull alpine) — that's OK
+  # Try a simpler host-level check instead
+  if curl -sf --max-time 5 "https://registry.npmjs.org/" > /dev/null 2>&1 || \
+     wget -q --spider --timeout=5 "https://registry.npmjs.org/" 2>/dev/null; then
+    verbose "Network connectivity OK (host-level check passed)"
     return 0
   fi
 
@@ -1000,7 +1016,11 @@ check_network_connectivity() {
   # ── Auto-fix: DNS issues (Linux/WSL only — macOS/Windows Docker Desktop manages its own DNS) ──
   if [[ "$HOST_OS" == "linux" || "$HOST_OS" == "wsl" ]]; then
     info "Trying Google DNS as a workaround..."
-    if docker run --rm --dns=8.8.8.8 alpine:3.19 sh -c "wget -q --spider http://registry.npmjs.org/ 2>/dev/null" >> "$LOG_FILE" 2>&1; then
+    local dns_fix_worked=false
+    if docker run --rm --dns=8.8.8.8 alpine:3.19 sh -c "wget -q --spider --timeout=10 http://registry.npmjs.org/ 2>/dev/null" >> "$LOG_FILE" 2>&1; then
+      dns_fix_worked=true
+    fi
+    if [[ "$dns_fix_worked" == true ]]; then
       fix "Docker DNS was broken. Adding Google DNS (8.8.8.8) as fallback."
       # Write Docker daemon DNS config
       if [[ -w /etc/docker/daemon.json ]] || [[ ! -f /etc/docker/daemon.json ]]; then
