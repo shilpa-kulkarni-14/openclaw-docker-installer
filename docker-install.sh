@@ -461,59 +461,93 @@ check_docker_running() {
       fix "Opening Docker Desktop..."
       open -a Docker 2>/dev/null || true
 
-      info "Waiting for Docker to start (this can take 30-60 seconds)..."
+      # First launch can take 2+ minutes (VM init, component download)
+      info "Waiting for Docker to start (first launch can take up to 2 minutes)..."
       local wait_count=0
-      while [[ $wait_count -lt 60 ]]; do
+      while [[ $wait_count -lt 150 ]]; do
         if docker info &>/dev/null 2>&1; then
           success "Docker is now running"
           return 0
         fi
         sleep 2
         wait_count=$((wait_count + 2))
-        # Show progress every 10 seconds
-        if [[ $((wait_count % 10)) -eq 0 ]]; then
-          info "Still waiting... (${wait_count}s)"
+        if [[ $((wait_count % 15)) -eq 0 ]]; then
+          info "Still starting... (${wait_count}s) — this is normal on first launch"
         fi
       done
 
-      error "Docker Desktop didn't start in time."
+      # Still not running — try one more thing: kill and relaunch
+      warn "Docker is slow to start. Trying to restart it..."
+      pkill -f "Docker Desktop" 2>/dev/null || true
+      sleep 3
+      open -a Docker 2>/dev/null || true
+
+      local retry_count=0
+      while [[ $retry_count -lt 60 ]]; do
+        if docker info &>/dev/null 2>&1; then
+          success "Docker is now running"
+          return 0
+        fi
+        sleep 2
+        retry_count=$((retry_count + 2))
+      done
+
+      # Last resort: ask user to open manually but DON'T exit
+      warn "Docker Desktop is taking longer than expected."
       echo ""
-      echo -e "  ${BOLD}Try these steps:${RESET}"
-      echo -e "    1. Open ${BOLD}Docker Desktop${RESET} from your Applications folder manually"
-      echo -e "    2. Wait for the whale icon in your menu bar to stop animating"
-      echo -e "    3. Re-run: ${BOLD}./docker-install.sh${RESET}"
+      echo -e "  ${BOLD}Please open Docker Desktop manually:${RESET}"
+      echo -e "    → Open ${BOLD}Finder → Applications → Docker${RESET}"
+      echo -e "    → Wait for the whale icon in your menu bar to stop animating"
       echo ""
-      echo -e "  ${DIM}If Docker Desktop won't start, try restarting your computer.${RESET}"
+      read -rp "  Press Enter once Docker is running... "
+      echo ""
+
+      if docker info &>/dev/null 2>&1; then
+        success "Docker is now running"
+        return 0
+      fi
+
+      error "Docker still not responding."
+      echo -e "  ${BOLD}Fix:${RESET} Restart your Mac, open Docker Desktop, then re-run:"
+      echo -e "    ${BOLD}./docker-install.sh${RESET}"
       exit 1
       ;;
     windows)
       fix "Trying to start Docker Desktop..."
-      # On Windows Git Bash, try to launch Docker Desktop via cmd
       cmd.exe /c "start \"\" \"C:\\Program Files\\Docker\\Docker\\Docker Desktop.exe\"" >> "$LOG_FILE" 2>&1 || \
         powershell.exe -Command "Start-Process 'Docker Desktop'" >> "$LOG_FILE" 2>&1 || true
 
-      info "Waiting for Docker to start (this can take 30-60 seconds)..."
+      info "Waiting for Docker to start (first launch can take up to 2 minutes)..."
       local wait_count=0
-      while [[ $wait_count -lt 90 ]]; do
+      while [[ $wait_count -lt 150 ]]; do
         if docker info &>/dev/null 2>&1; then
           success "Docker is now running"
           return 0
         fi
         sleep 2
         wait_count=$((wait_count + 2))
-        if [[ $((wait_count % 10)) -eq 0 ]]; then
-          info "Still waiting... (${wait_count}s)"
+        if [[ $((wait_count % 15)) -eq 0 ]]; then
+          info "Still starting... (${wait_count}s) — this is normal on first launch"
         fi
       done
 
-      error "Docker Desktop didn't start in time."
+      warn "Docker Desktop is taking longer than expected."
       echo ""
-      echo -e "  ${BOLD}Try these steps:${RESET}"
-      echo -e "    1. Open ${BOLD}Docker Desktop${RESET} from the Start Menu"
-      echo -e "    2. Wait for the whale icon in your system tray to stop animating"
-      echo -e "    3. Re-run: ${BOLD}./docker-install.sh${RESET}"
+      echo -e "  ${BOLD}Please open Docker Desktop manually:${RESET}"
+      echo -e "    → Open the ${BOLD}Start Menu${RESET} → search for ${BOLD}Docker Desktop${RESET} → click it"
+      echo -e "    → Wait for the whale icon in the system tray to stop animating"
       echo ""
-      echo -e "  ${DIM}If Docker Desktop won't start, try restarting your computer.${RESET}"
+      read -rp "  Press Enter once Docker is running... "
+      echo ""
+
+      if docker info &>/dev/null 2>&1; then
+        success "Docker is now running"
+        return 0
+      fi
+
+      error "Docker still not responding."
+      echo -e "  ${BOLD}Fix:${RESET} Restart your computer, open Docker Desktop, then re-run:"
+      echo -e "    ${BOLD}./docker-install.sh${RESET}"
       exit 1
       ;;
     wsl)
