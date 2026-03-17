@@ -235,34 +235,152 @@ check_docker_installed() {
   # Offer to auto-install on supported platforms
   case "$HOST_OS" in
     macos)
+      local docker_installed=false
+
+      # ── Attempt 1: Homebrew ──
       if command_exists brew; then
         echo -e "  ${BOLD}Homebrew detected.${RESET} We can install Docker for you."
         echo ""
         if prompt_yn "Install Docker Desktop via Homebrew?" "y"; then
-          fix "Installing Docker Desktop via Homebrew"
-          brew install --cask docker >> "$LOG_FILE" 2>&1 || {
-            error "Homebrew install failed. Trying manual instructions..."
-          }
+          fix "Installing Docker Desktop via Homebrew..."
+          info "This may take a few minutes. Please wait..."
           echo ""
-          info "Docker Desktop installed. ${BOLD}Please open it from Applications now.${RESET}"
-          info "Wait for the whale icon in your menu bar to stop animating, then re-run:"
-          echo -e "    ${BOLD}./docker-install.sh${RESET}"
-          echo ""
-          exit 0
+
+          # Update Homebrew first (stale taps are the #1 cause of cask failures)
+          log "Updating Homebrew..."
+          brew update >> "$LOG_FILE" 2>&1 || true
+
+          if brew install --cask docker >> "$LOG_FILE" 2>&1; then
+            docker_installed=true
+          else
+            # ── Attempt 2: Clean retry ──
+            warn "First attempt failed. Cleaning up and retrying..."
+            log "Homebrew cask install failed. Checking common causes..."
+
+            # Fix: stale cask cache
+            brew cleanup >> "$LOG_FILE" 2>&1 || true
+
+            # Fix: quarantine / Gatekeeper issues
+            if brew install --cask docker --no-quarantine >> "$LOG_FILE" 2>&1; then
+              docker_installed=true
+            else
+              # ── Attempt 3: Direct DMG download ──
+              warn "Homebrew install failed twice. Trying direct download..."
+              log "Attempting direct Docker Desktop DMG download"
+
+              local arch
+              arch="$(uname -m)"
+              local dmg_url=""
+              if [[ "$arch" == "arm64" ]]; then
+                dmg_url="https://desktop.docker.com/mac/main/arm64/Docker.dmg"
+              else
+                dmg_url="https://desktop.docker.com/mac/main/amd64/Docker.dmg"
+              fi
+
+              local dmg_path="/tmp/Docker.dmg"
+              if curl -fSL -o "$dmg_path" "$dmg_url" >> "$LOG_FILE" 2>&1; then
+                info "Downloaded Docker Desktop. Installing..."
+                # Mount, copy, unmount
+                local mount_point
+                mount_point="$(hdiutil attach "$dmg_path" -nobrowse 2>/dev/null | grep '/Volumes/' | awk '{print $NF}')" || true
+
+                if [[ -n "$mount_point" ]] && [[ -d "$mount_point/Docker.app" ]]; then
+                  cp -R "$mount_point/Docker.app" /Applications/ 2>/dev/null || \
+                    sudo cp -R "$mount_point/Docker.app" /Applications/ >> "$LOG_FILE" 2>&1 || true
+                  hdiutil detach "$mount_point" -quiet 2>/dev/null || true
+                  rm -f "$dmg_path"
+
+                  if [[ -d "/Applications/Docker.app" ]]; then
+                    docker_installed=true
+                    success "Docker Desktop installed via direct download"
+                  fi
+                else
+                  hdiutil detach "$mount_point" -quiet 2>/dev/null || true
+                  rm -f "$dmg_path"
+                fi
+              fi
+            fi
+          fi
+        fi
+      else
+        # ── No Homebrew: try direct DMG download ──
+        echo -e "  ${BOLD}We can download and install Docker Desktop for you.${RESET}"
+        echo ""
+        if prompt_yn "Download and install Docker Desktop?" "y"; then
+          local arch
+          arch="$(uname -m)"
+          local dmg_url=""
+          if [[ "$arch" == "arm64" ]]; then
+            dmg_url="https://desktop.docker.com/mac/main/arm64/Docker.dmg"
+          else
+            dmg_url="https://desktop.docker.com/mac/main/amd64/Docker.dmg"
+          fi
+
+          info "Downloading Docker Desktop (this may take a few minutes)..."
+          local dmg_path="/tmp/Docker.dmg"
+          if curl -fSL -o "$dmg_path" "$dmg_url" >> "$LOG_FILE" 2>&1; then
+            info "Installing..."
+            local mount_point
+            mount_point="$(hdiutil attach "$dmg_path" -nobrowse 2>/dev/null | grep '/Volumes/' | awk '{print $NF}')" || true
+
+            if [[ -n "$mount_point" ]] && [[ -d "$mount_point/Docker.app" ]]; then
+              cp -R "$mount_point/Docker.app" /Applications/ 2>/dev/null || \
+                sudo cp -R "$mount_point/Docker.app" /Applications/ >> "$LOG_FILE" 2>&1 || true
+              hdiutil detach "$mount_point" -quiet 2>/dev/null || true
+              rm -f "$dmg_path"
+
+              if [[ -d "/Applications/Docker.app" ]]; then
+                docker_installed=true
+                success "Docker Desktop installed"
+              fi
+            else
+              hdiutil detach "$mount_point" -quiet 2>/dev/null || true
+              rm -f "$dmg_path"
+            fi
+          else
+            error "Download failed. Check your internet connection."
+          fi
         fi
       fi
-      echo -e "  ${BOLD}To install Docker on your Mac:${RESET}"
+
+      if [[ "$docker_installed" == true ]]; then
+        echo ""
+        info "Opening Docker Desktop..."
+        open -a Docker 2>/dev/null || true
+
+        # Wait for Docker to start (up to 90 seconds)
+        info "Waiting for Docker to start (this takes 30-60 seconds on first launch)..."
+        local wait_count=0
+        while [[ $wait_count -lt 90 ]]; do
+          if command_exists docker && docker info &>/dev/null 2>&1; then
+            success "Docker is running"
+            return 0
+          fi
+          wait_count=$((wait_count + 1))
+          sleep 1
+          if [[ $((wait_count % 15)) -eq 0 ]]; then
+            info "Still starting... (${wait_count}s)"
+          fi
+        done
+
+        # Docker installed but not ready yet
+        warn "Docker Desktop is installed but still starting."
+        info "Please wait for the whale icon in your menu bar to stop animating, then re-run:"
+        echo -e "    ${BOLD}./docker-install.sh${RESET}"
+        echo ""
+        exit 0
+      fi
+
+      # All auto-install attempts failed — show manual instructions
       echo ""
-      echo -e "    ${CYAN}Option 1: Download Docker Desktop (recommended for beginners)${RESET}"
-      echo -e "    → Go to ${UNDERLINE}https://docker.com/products/docker-desktop${RESET}"
-      echo -e "    → Click \"Download for Mac\""
-      echo -e "    → Open the .dmg file and drag Docker to Applications"
-      echo -e "    → Open Docker from your Applications folder"
-      echo -e "    → Wait for the whale icon to appear in your menu bar"
+      echo -e "  ${BOLD}Automatic install didn't work. Here's how to do it manually:${RESET}"
       echo ""
-      echo -e "    ${CYAN}Option 2: Install via Homebrew (one command)${RESET}"
-      echo -e "    → Run: ${BOLD}brew install --cask docker${RESET}"
-      echo -e "    → Then open Docker from Applications"
+      echo -e "    1. Go to ${UNDERLINE}https://docker.com/products/docker-desktop${RESET}"
+      echo -e "    2. Click \"Download for Mac\""
+      echo -e "    3. Open the .dmg file and drag Docker to Applications"
+      echo -e "    4. Open Docker from your Applications folder"
+      echo -e "    5. Wait for the whale icon in your menu bar"
+      echo -e "    6. Re-run: ${BOLD}./docker-install.sh${RESET}"
       echo ""
       ;;
     linux|wsl)
