@@ -698,13 +698,26 @@ check_docker_permissions() {
 
 check_docker_version() {
   local docker_ver
-  docker_ver="$(docker version --format '{{.Server.Version}}' 2>/dev/null || echo '0.0.0')"
+  docker_ver="$(docker version --format '{{.Server.Version}}' 2>/dev/null || echo '')"
 
-  # Extract major version
+  # If we couldn't get the version, Docker might still be starting up
+  if [[ -z "$docker_ver" ]]; then
+    verbose "Could not determine Docker version (daemon may still be initializing)"
+    return 0
+  fi
+
+  # Extract major version (handle non-numeric gracefully)
   local major
   major="${docker_ver%%.*}"
+  # Strip any non-numeric characters (e.g., "v27" → "27")
+  major="${major//[^0-9]/}"
 
-  if [[ "$major" -ge 20 ]]; then
+  if [[ -z "$major" ]]; then
+    verbose "Docker version: ${docker_ver} (could not parse major version)"
+    return 0
+  fi
+
+  if [[ "$major" -ge 20 ]] 2>/dev/null; then
     verbose "Docker version ${docker_ver} (meets minimum 20.x)"
     return 0
   fi
@@ -715,16 +728,13 @@ check_docker_version() {
 }
 
 check_disk_space() {
-  local available_mb=0
+  local available_mb
+  available_mb="$(df -m "$SCRIPT_DIR" 2>/dev/null | awk 'NR==2 {print $4}' || echo '')"
+  # Strip non-numeric characters
+  available_mb="${available_mb//[^0-9]/}"
+  available_mb="${available_mb:-0}"
 
-  if [[ "$(uname -s)" == "Darwin" ]]; then
-    # macOS: df reports in 512-byte blocks by default, use -m for MB
-    available_mb=$(df -m "$SCRIPT_DIR" 2>/dev/null | awk 'NR==2 {print $4}')
-  else
-    available_mb=$(df -m "$SCRIPT_DIR" 2>/dev/null | awk 'NR==2 {print $4}')
-  fi
-
-  if [[ -z "$available_mb" ]] || [[ "$available_mb" -eq 0 ]]; then
+  if [[ "$available_mb" -eq 0 ]] 2>/dev/null; then
     verbose "Could not determine disk space"
     return 0
   fi
@@ -1000,25 +1010,25 @@ check_existing_container() {
 
 check_network_connectivity() {
   # Quick check that we can reach the internet (needed for npm install in Dockerfile)
-  # Use a short timeout so this doesn't hang on slow networks.
-  # On a fresh Docker install, this may need to pull the alpine image first,
-  # so we use `|| true` to prevent set -e from killing the script.
-  local net_ok=false
-  if docker run --rm --network=host alpine:3.19 sh -c "wget -q --spider --timeout=10 http://registry.npmjs.org/ 2>/dev/null" >> "$LOG_FILE" 2>&1; then
-    net_ok=true
-  fi
-
-  if [[ "$net_ok" == true ]]; then
+  # Use host-level check FIRST (fast, no image pull needed).
+  # Only try docker-level check if host check fails AND an image is already cached.
+  if curl -sf --max-time 5 "https://registry.npmjs.org/" > /dev/null 2>&1 || \
+     wget -q --spider --timeout=5 "https://registry.npmjs.org/" 2>/dev/null; then
     verbose "Network connectivity OK (can reach npm registry)"
     return 0
   fi
 
-  # The docker run itself might have failed (e.g., can't pull alpine) — that's OK
-  # Try a simpler host-level check instead
-  if curl -sf --max-time 5 "https://registry.npmjs.org/" > /dev/null 2>&1 || \
-     wget -q --spider --timeout=5 "https://registry.npmjs.org/" 2>/dev/null; then
-    verbose "Network connectivity OK (host-level check passed)"
-    return 0
+  # Host-level check failed — try from inside Docker only if alpine is already cached
+  # (don't pull images during pre-flight on a fresh install)
+  if docker image inspect alpine:3.19 &>/dev/null 2>&1; then
+    local net_ok=false
+    if docker run --rm alpine:3.19 sh -c "wget -q --spider --timeout=10 http://registry.npmjs.org/ 2>/dev/null" >> "$LOG_FILE" 2>&1; then
+      net_ok=true
+    fi
+    if [[ "$net_ok" == true ]]; then
+      verbose "Network connectivity OK (Docker-level check passed)"
+      return 0
+    fi
   fi
 
   warn "Cannot reach npm registry from Docker"
