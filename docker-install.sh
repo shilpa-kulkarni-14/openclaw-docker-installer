@@ -363,8 +363,24 @@ check_docker_installed() {
           fi
         done
 
-        # Docker installed but not ready yet
-        warn "Docker Desktop is installed but still starting."
+        # Docker installed but not ready yet — keep waiting instead of quitting
+        warn "Docker Desktop is still starting (this can take 2+ minutes on first launch)..."
+        info "Waiting a bit longer..."
+        local extra_wait=0
+        while [[ $extra_wait -lt 120 ]]; do
+          if command_exists docker && docker info &>/dev/null 2>&1; then
+            success "Docker is running"
+            return 0
+          fi
+          extra_wait=$((extra_wait + 2))
+          sleep 2
+          if [[ $((extra_wait % 15)) -eq 0 ]]; then
+            info "Still starting... ($((wait_count + extra_wait))s total) — be patient, first launch is slow"
+          fi
+        done
+
+        # Truly timed out after 90 + 120 = ~210 seconds
+        warn "Docker Desktop installed but still not responding after ~3 minutes."
         info "Please wait for the whale icon in your menu bar to stop animating, then re-run:"
         echo -e "    ${BOLD}./docker-install.sh${RESET}"
         echo ""

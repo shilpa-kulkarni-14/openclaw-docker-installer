@@ -78,11 +78,11 @@ services:
     deploy:
       resources:
         limits:
-          memory: 1G
+          memory: 2G
           cpus: "2.0"
           pids: 200        # Max 200 processes (prevents fork bombs)
         reservations:
-          memory: 256M
+          memory: 512M
 
     # ── Security: Logging limits ──
     # Prevent log files from filling up your disk
