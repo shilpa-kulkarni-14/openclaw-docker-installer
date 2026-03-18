@@ -7,9 +7,12 @@
 # What this does:
 #   1. Checks Docker + auto-fixes 15+ common issues beginners hit
 #   2. Asks for your API key (one question, validated before continuing)
-#   3. Picks your chat channel (optional)
-#   4. Builds & starts with automatic retry and diagnostics on failure
-#   5. Runs a security audit and self-heals anything that's wrong
+#   3. Builds & starts with automatic retry and diagnostics on failure
+#   4. Runs a security audit and self-heals anything that's wrong
+#   5. Opens the dashboard — type "hello" and get a response immediately
+#
+# Channels (Slack, Discord, Telegram, etc.) are optional — add later with:
+#   ./docker-install.sh --channels
 #
 # Usage:
 #   ./docker-install.sh
@@ -172,7 +175,7 @@ usage() {
 Usage: ./docker-install.sh [OPTIONS]
 
 Options:
-  --channels        Interactive channel selector (25+ channels)
+  --channels        Add chat channels (Slack, Discord, Telegram, etc.)
   --stop            Stop the running agent
   --status          Check if the agent is running
   --doctor          Diagnose and auto-fix common problems
@@ -183,8 +186,8 @@ Options:
   --help, -h        Show this help message
 
 Examples:
-  ./docker-install.sh                  # Basic setup + start
-  ./docker-install.sh --channels       # Setup with channel picker
+  ./docker-install.sh                  # Install → type "hello" in browser
+  ./docker-install.sh --channels       # Add Slack/Discord/Telegram later
   ./docker-install.sh --stop           # Stop the agent
   ./docker-install.sh --status         # Is it running?
   ./docker-install.sh --doctor         # Something broken? Run this
@@ -206,7 +209,7 @@ compose_cmd() {
 # ============================================================================
 
 preflight_checks() {
-  step 1 5 "Pre-flight checks"
+  step 1 4 "Pre-flight checks"
 
   check_docker_installed
   check_docker_running
@@ -1110,7 +1113,7 @@ check_network_connectivity() {
 # ============================================================================
 
 configure_keys() {
-  step 2 5 "Configuring API keys"
+  step 2 4 "Configuring API keys"
 
   # Check if .env already exists with a key
   if [[ -f "$ENV_FILE" ]] && grep -q "ANTHROPIC_API_KEY=sk-" "$ENV_FILE" 2>/dev/null; then
@@ -1238,9 +1241,14 @@ configure_keys() {
     esac
   done
 
-  # ── Channel selection (always ask — part of the seamless experience) ──
+  # ── Channel selection (opt-in only — default is webchat via dashboard) ──
+  # The core install gives users a working webchat in the browser immediately.
+  # Channels (Discord, Slack, Telegram, etc.) are optional and can be added
+  # later via: ./docker-install.sh --channels
   local channels=""
-  channels="$(select_channels_interactive)"
+  if [[ "$FLAG_CHANNELS" == true ]]; then
+    channels="$(select_channels_interactive)"
+  fi
 
   # ── Generate gateway token ──
   # We generate it here so the installer knows the token and can print
@@ -1448,7 +1456,7 @@ select_channels_interactive() {
 # ============================================================================
 
 build_and_start() {
-  step 3 5 "Building and starting OpenClaw"
+  step 3 4 "Building and starting OpenClaw"
 
   if dry_run "Build Docker image and start container"; then return 0; fi
 
@@ -1961,7 +1969,7 @@ diagnose_container_crash() {
 # ============================================================================
 
 harden_and_verify() {
-  step 4 5 "Security hardening"
+  step 4 4 "Finishing up"
 
   if dry_run "Run security hardening checks"; then return 0; fi
 
@@ -2241,7 +2249,7 @@ print_channel_instructions() {
 # ============================================================================
 
 verify_and_finish() {
-  step 5 5 "Verifying installation"
+  # Verification (part of step 4)
 
   local score=0
   local total=9
@@ -2449,63 +2457,145 @@ verify_and_finish() {
     fi
 
     echo ""
-    echo -e "  ${DIM}This is the OpenClaw Control Panel where you can:${RESET}"
-    echo -e "  ${DIM}  • Configure channels (Slack, Discord, Telegram, etc.)${RESET}"
-    echo -e "  ${DIM}  • Manage skills and agent behavior${RESET}"
-    echo -e "  ${DIM}  • Monitor agent activity and logs${RESET}"
+    echo -e "  ${BOLD}${GREEN}Try it now:${RESET} Type ${BOLD}hello${RESET} in the chat box and press Enter!"
+    echo -e "  ${DIM}Your AI agent should respond within a few seconds.${RESET}"
     echo ""
 
     # ── Auto-approve device pairing ──
-    # When the user opens the dashboard URL, the browser sends a pairing request.
-    # We wait for it and auto-approve so the user doesn't have to do it manually.
-    echo -e "  ${BOLD}Waiting for you to open the dashboard...${RESET}"
-    info "Once you open the URL above, we'll auto-approve the connection."
+    # The dashboard requires device pairing before it works. Sequence:
+    #   1. Wait for the gateway to be fully healthy (HTTP 200 on /health)
+    #   2. Open the browser (creates a WebSocket → pairing request)
+    #   3. Poll for the pending request and auto-approve it
+    # The user sees a clear 3-step progress indicator the whole time.
+
+    echo ""
+    echo -e "  ${BOLD}Setting up dashboard connection...${RESET}"
     echo ""
 
+    # Step 1: Wait for gateway to be healthy before opening browser
+    echo -ne "  [1/3] Waiting for gateway..."
+    local gw_wait=0
+    local gw_ready=false
+    while [[ $gw_wait -lt 90 ]]; do
+      if curl -sf --max-time 2 "http://127.0.0.1:${GATEWAY_PORT}/health" >/dev/null 2>&1; then
+        gw_ready=true
+        break
+      fi
+      local dots=""
+      local dot_count=$(( (gw_wait / 3) % 4 ))
+      for (( d=0; d<dot_count; d++ )); do dots+="."; done
+      echo -ne "\r  [1/3] Waiting for gateway${dots}   "
+      sleep 3
+      gw_wait=$((gw_wait + 3))
+    done
+
+    if [[ "$gw_ready" == true ]]; then
+      echo -e "\r  [1/3] Gateway ready             ${GREEN}✓${RESET}"
+    else
+      echo -e "\r  [1/3] Gateway not responding     ${YELLOW}!${RESET}"
+      echo -e "        ${DIM}The gateway may still be starting. Try refreshing in a minute.${RESET}"
+    fi
+
+    # Step 2: Open the browser (now that gateway is ready)
+    echo -ne "  [2/3] Opening browser..."
+    local browser_opened=false
+    case "$HOST_OS" in
+      macos)
+        open "$dashboard_url" 2>/dev/null && browser_opened=true ;;
+      linux)
+        if command_exists xdg-open; then
+          xdg-open "$dashboard_url" 2>/dev/null && browser_opened=true
+        elif command_exists sensible-browser; then
+          sensible-browser "$dashboard_url" 2>/dev/null && browser_opened=true
+        fi ;;
+      wsl)
+        cmd.exe /c start "" "$dashboard_url" >> "$LOG_FILE" 2>&1 && browser_opened=true ;;
+      windows)
+        cmd.exe /c start "" "$dashboard_url" >> "$LOG_FILE" 2>&1 && browser_opened=true ;;
+    esac
+
+    if [[ "$browser_opened" == true ]]; then
+      echo -e "\r  [2/3] Opening browser            ${GREEN}✓${RESET}"
+    else
+      echo -e "\r  [2/3] Opening browser            ${YELLOW}manual${RESET}"
+      echo -e "        ${BOLD}Please open the URL above in your browser now.${RESET}"
+    fi
+
+    # Step 3: Wait for the pairing request and auto-approve it
+    # Give the browser a few seconds to load and establish the WebSocket connection
+    sleep 3
+    echo -ne "  [3/3] Pairing dashboard..."
     local pair_wait=0
     local paired=false
-    while [[ $pair_wait -lt 120 ]]; do
-      # Check for pending pairing requests
-      local pending_id
-      pending_id="$(docker exec "$CONTAINER_NAME" openclaw devices list 2>/dev/null | grep -A1 'Request' | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 || true)"
+
+    while [[ $pair_wait -lt 60 ]]; do
+      # Get the full device list output
+      local devices_output
+      devices_output="$(docker exec "$CONTAINER_NAME" openclaw devices list 2>/dev/null || true)"
+      log "devices list output: $devices_output"
+
+      # Extract pending request ID: grab ANY UUID from lines after "Pending"
+      local pending_id=""
+      if echo "$devices_output" | grep -q "Pending"; then
+        # The UUID is in the "Request" column — extract it from between the Pending
+        # header and the next section (Paired or end of output)
+        pending_id="$(echo "$devices_output" | awk '/^Pending/,/^Paired|^$/' | grep -oE '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' | head -1 || true)"
+      fi
+
       if [[ -n "$pending_id" ]]; then
-        fix "Auto-approving device pairing..."
+        echo -ne "\r  [3/3] Pairing dashboard...approving"
         docker exec "$CONTAINER_NAME" openclaw devices approve "$pending_id" >> "$LOG_FILE" 2>&1 || true
-        success "Dashboard paired and ready to use"
+        sleep 1
+        echo -e "\r  [3/3] Dashboard paired            ${GREEN}✓${RESET}"
         paired=true
         break
       fi
+
+      # Simple dot animation (avoids unicode spinner issues in piped terminals)
+      local dots=""
+      local dot_count=$(( (pair_wait / 2) % 4 ))
+      for (( d=0; d<dot_count; d++ )); do dots+="."; done
+      echo -ne "\r  [3/3] Pairing dashboard${dots}      "
+
       sleep 2
       pair_wait=$((pair_wait + 2))
-      if [[ $((pair_wait % 30)) -eq 0 && $pair_wait -gt 0 ]]; then
-        info "Still waiting... open the URL above in your browser"
-      fi
     done
 
-    if [[ "$paired" != true ]]; then
+    if [[ "$paired" == true ]]; then
       echo ""
-      info "No pairing request detected. If the dashboard says 'pairing required':"
-      echo -e "    ${CYAN}docker exec openclaw-agent openclaw devices list${RESET}"
-      echo -e "    ${CYAN}docker exec openclaw-agent openclaw devices approve <request-id>${RESET}"
+      echo -e "  ${GREEN}${BOLD}✓ Dashboard is live and connected!${RESET}"
+      echo -e "    ${DIM}If it shows a blank page, just refresh (Cmd+R / Ctrl+R).${RESET}"
+    else
+      echo -e "\r  [3/3] Pairing dashboard          ${YELLOW}timed out${RESET}"
+      echo ""
+      echo -e "  ${YELLOW}⚠${RESET}  ${BOLD}Auto-pairing timed out${RESET} — the browser may not have loaded yet."
+      echo ""
+      echo -e "    ${BOLD}To fix:${RESET} Open the URL above in your browser, then run:"
+      echo -e "      ${CYAN}docker exec openclaw-agent openclaw devices list${RESET}"
+      echo -e "      ${CYAN}docker exec openclaw-agent openclaw devices approve <request-id>${RESET}"
+      echo ""
+      echo -e "    ${DIM}Or re-run: ${BOLD}./docker-install.sh --doctor${RESET}"
     fi
 
     echo ""
 
-    # ── Channel-specific setup instructions ──
+    # ── Channel-specific setup instructions (only if channels were selected) ──
     local selected_channels=""
     if [[ -f "$ENV_FILE" ]]; then
       selected_channels="$(grep '^OPENCLAW_CHANNELS=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- || true)"
     fi
 
     if [[ -n "$selected_channels" ]]; then
-      echo -e "  ${BOLD}Next step:${RESET} Connect your channel(s)"
+      echo -e "  ${BOLD}Optional — Connect your channel(s):${RESET}"
       echo ""
       print_channel_instructions "$selected_channels"
+      echo -e "    ${BOLD}Then run:${RESET} ${CYAN}docker exec -it $CONTAINER_NAME openclaw configure${RESET}"
+      echo -e "    ${DIM}The wizard will ask you to paste the token(s) from above.${RESET}"
     else
-      echo -e "  ${BOLD}Next step:${RESET} Connect a chat channel"
+      echo -e "  ${BOLD}Optional — Connect a chat channel later:${RESET}"
+      echo -e "    ${DIM}Want to connect Slack, Discord, Telegram, or 20+ other channels?${RESET}"
+      echo -e "    ${CYAN}./docker-install.sh --channels${RESET}"
     fi
-    echo -e "    ${BOLD}Then run:${RESET} ${CYAN}docker exec -it $CONTAINER_NAME openclaw configure${RESET}"
-    echo -e "    ${DIM}The wizard will ask you to paste the token(s) from above.${RESET}"
   else
     echo -e "  ${BOLD}${YELLOW}OpenClaw installed but container is not running (state: ${final_state}).${RESET}"
     echo ""
@@ -2529,7 +2619,7 @@ verify_and_finish() {
   echo ""
   echo -e "  ${BOLD}Configuration:${RESET}"
   echo -e "    Edit API keys:    ${CYAN}nano .env${RESET}  (then: docker compose restart)"
-  echo -e "    Change channels:  Add ${CYAN}OPENCLAW_CHANNELS=slack,discord${RESET} to .env"
+  echo -e "    Add channels:     ${CYAN}./docker-install.sh --channels${RESET}"
   echo -e "    Full uninstall:   ${CYAN}./docker-install.sh --uninstall${RESET}"
   echo ""
   echo -e "  ${DIM}Full log: ${LOG_FILE}${RESET}"

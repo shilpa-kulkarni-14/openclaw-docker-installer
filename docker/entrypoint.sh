@@ -637,7 +637,13 @@ echo ""
 
 if command -v openclaw >/dev/null 2>&1; then
   echo "  Running compatibility migrations..."
-  openclaw doctor --fix 2>/dev/null && echo "  ✓ Migrations applied" || echo "  ℹ No migrations needed (or doctor not available in this version)"
+  # Timeout after 30 seconds — doctor --fix can hang on network issues or
+  # broken configs, which would block the gateway from ever starting.
+  if timeout 30 openclaw doctor --fix 2>/dev/null; then
+    echo "  ✓ Migrations applied"
+  else
+    echo "  ℹ Migrations skipped (timed out or not needed)"
+  fi
 fi
 
 echo ""

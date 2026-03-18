@@ -89,20 +89,7 @@ Paste the key you saved in Step 1. **How to paste:**
 ```
 Type the numbers of providers you want (e.g., `1 2` for OpenAI + Gemini), or just press **Enter** to skip.
 
-**3. Choose your chat channel:**
-```
-  Select channels to enable:
-
-    1) Slack
-    2) Discord
-    3) Telegram
-    ...
-
-  Select [s]:
-```
-Pick where you want your AI agent to live. Type a number and press Enter.
-
-**4. Wait ~2 minutes** while the installer does everything:
+**3. Wait ~2 minutes** while the installer does everything:
 - ✅ Installs Docker (if needed)
 - ✅ Checks your system
 - ✅ Builds the AI agent
@@ -110,19 +97,31 @@ Pick where you want your AI agent to live. Type a number and press Enter.
 - ✅ Sets up security
 - ✅ Auto-fixes any problems it finds
 
-### Step 4: Open Your AI Agent
+### Step 4: Say Hello to Your AI Agent
 
-When the installer finishes, it prints a URL. **Copy the entire URL** and paste it into your browser:
+When the installer finishes, it automatically opens your browser. You'll see the OpenClaw dashboard with a chat box.
+
+**Type `hello` and press Enter.** Your AI agent should respond within a few seconds. That's it — you're talking to your own AI agent!
 
 ```
   ✓ Your OpenClaw agent is running!
 
   Open this URL in your browser (token included — just click!):
 
-    http://localhost:18789/?token=abc123def456...
+    http://localhost:18789/#token=abc123def456...
+
+  Try it now: Type hello in the chat box and press Enter!
 ```
 
-You'll see the **OpenClaw Control Panel** — your AI agent's dashboard.
+> **What good looks like:** You type "hello" → the AI responds with a greeting. If that works, everything is set up correctly.
+
+### Step 5 (Optional): Connect a Chat Channel
+
+The webchat in the browser works immediately. If you also want your AI on Slack, Discord, Telegram, or 20+ other channels, run:
+
+```bash
+./docker-install.sh --channels
+```
 
 ### 🎉 That's It!
 
@@ -142,26 +141,28 @@ Your AI agent is running. You can close the terminal window — it keeps running
 ## How It Works
 
 ```
-You answer: 3 simple questions (API key, AI providers, chat channel)
+You answer: 1 question (API key)
      ↓
 The installer: Handles EVERYTHING else
      ↓
-You get: A running AI agent on Discord, Telegram, Slack, or 25+ channels
+You get: A running AI agent in your browser — type "hello" and it responds
+     ↓
+Optional: Connect to Slack, Discord, Telegram, or 25+ channels later
 ```
 
 **What the installer does for you (no manual steps needed):**
 - Installs Docker if you don't have it
 - Installs Git dependencies
 - Validates your API keys (catches typos, wrong key types)
-- Lets you pick your AI providers (Anthropic, OpenAI, Gemini, Mistral, Groq, DeepSeek, OpenRouter, Cohere)
-- Lets you pick your chat channel (Slack, Discord, Telegram, etc.)
+- Lets you add more AI providers (OpenAI, Gemini, Mistral, Groq, DeepSeek, OpenRouter, Cohere)
+- Opens a webchat dashboard — working AI conversation in your browser immediately
 - Builds and starts the agent container
 - Auto-fixes 15+ common problems (port conflicts, DNS issues, permissions, disk space, etc.)
 - Sets up security (11 layers of protection)
 - Auto-generates and pairs the dashboard token
 - Prints a clickable URL to open the control panel
 
-**What about Discord/Telegram/Slack bot tokens?** The installer asks you to pick your channel. After install, run `docker exec -it openclaw-agent openclaw configure` to paste your bot token — the wizard walks you through it.
+**What about Discord/Telegram/Slack?** Channels are optional. The default install gives you a working webchat in the browser. To add channels later, run `./docker-install.sh --channels`.
 
 ---
 
@@ -180,7 +181,7 @@ curl -fsSL https://github.com/shilpa-kulkarni-14/openclaw-docker-installer/archi
 
 ## What Happens When You Run The Installer
 
-The installer runs 5 phases. Here's exactly what each one does:
+The installer runs 4 phases. Here's exactly what each one does:
 
 ### Phase 1: Pre-flight checks (9 automatic checks)
 
@@ -237,14 +238,17 @@ If the container crashes after starting, it reads the logs and diagnoses:
 | Graceful stop (143) | Exit code 143 | Normal — just restart |
 | Segfault (139) | Exit code 139 | Rebuild from scratch |
 
-### Phase 4: Security hardening
+### Phase 4: Finishing up (security + dashboard)
 
 Automatically checks and fixes:
 - `.env` file permissions (must be 600)
 - `.gitignore` contains `.env` (prevents accidental commit)
 - Warns if `.env` is tracked by git
+- Waits for gateway to be healthy
+- Opens the dashboard in your browser
+- Auto-pairs the dashboard (so you never see "pairing required")
 
-### Phase 5: Security scorecard (9 points)
+#### Security scorecard (9 points)
 
 ```
   Security Scorecard (Docker)
@@ -264,14 +268,13 @@ Automatically checks and fixes:
 
 ---
 
-## Step-by-Step: Docker + Telegram (Complete Example)
+## Step-by-Step: Basic Install (Complete Example)
 
-This walks you through everything from zero to a working bot.
+This walks you through everything from zero to a working AI agent in your browser.
 
 ### What you need
 
 - Docker Desktop installed (installer helps if you don't have it)
-- A Telegram account (free)
 - An Anthropic API key (free tier at [console.anthropic.com](https://console.anthropic.com))
 
 ### 1. Get your Anthropic API key
@@ -280,57 +283,49 @@ This walks you through everything from zero to a working bot.
 2. Create an account (free)
 3. Click **API Keys** → **Create Key** → name it "openclaw"
 4. Copy the key (starts with `sk-ant-`)
+5. **Test it works** (optional but recommended):
+```bash
+curl -s https://api.anthropic.com/v1/messages \
+  -H "x-api-key: YOUR_KEY_HERE" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "content-type: application/json" \
+  -d '{"model":"claude-sonnet-4-20250514","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}'
+```
+If you see a JSON response with `"content"`, your key works. If you see `"authentication_error"`, the key is invalid — create a new one.
 
-### 2. Create your Telegram bot
-
-1. Open Telegram, search for **@BotFather**
-2. Send `/newbot`
-3. Name it: `My OpenClaw Agent`
-4. Username: `myopenclaw_bot` (must end in `bot`)
-5. Copy the **HTTP API token** BotFather gives you
-
-### 3. Run the installer
+### 2. Run the installer
 
 ```bash
 git clone https://github.com/shilpa-kulkarni-14/openclaw-docker-installer.git
 cd openclaw-docker-installer
-./docker-install.sh --channels
+./docker-install.sh
 ```
 
-### 4. Paste your API key when asked
-
-The installer only asks for the LLM key:
+### 3. Paste your API key when asked
 
 ```
   Anthropic API key (sk-ant-...): ▊
 ```
 
-If you mistype it, the installer tells you what's wrong and lets you retry (3 attempts).
+Press Enter to skip optional extra providers.
 
-### 5. Select Telegram from the channel picker
+### 4. Wait ~2 minutes
 
-```
-  Select channels to enable:
-     3) Telegram                     Personal & group messaging
+The installer builds the image, starts the container, checks health, and opens your browser.
 
-  Select [s]: 3
-```
+### 5. Type "hello"
 
-### 6. Wait ~1-2 minutes for the build
+The dashboard opens in your browser with a chat box. Type **hello** and press Enter. The AI responds. **That's it — you're done.**
 
-The installer builds the image, starts the container, and checks health.
+### 6 (Optional): Add a chat channel
 
-### 7. Configure your Telegram bot token
+Want your AI on Telegram, Discord, or Slack? Run:
 
 ```bash
-docker exec -it openclaw-agent openclaw configure
+./docker-install.sh --channels
 ```
 
-Paste the Telegram token from step 2.
-
-### 8. Message your bot
-
-Open Telegram, find `@myopenclaw_bot`, send a message. The AI responds.
+Then follow the channel-specific setup instructions.
 
 ---
 
@@ -446,10 +441,47 @@ Each check has a specific error message and fix instructions if it fails.
 
 | Error | Cause | Fix |
 |---|---|---|
+| **"HTTP 401 authentication_error: invalid x-api-key"** | Your Anthropic API key is invalid, expired, or over its rate limit | See **API Key 401 Error** section below |
 | "unauthorized: gateway token missing" | Dashboard needs the gateway auth token | Run `docker exec -it openclaw-agent openclaw dashboard --no-open` and open the tokenized URL |
 | "pairing required" | Dashboard not yet paired with gateway | Run `docker exec -it openclaw-agent openclaw gateway pair`, then refresh |
 | "error empty response" / page won't load | Container running but gateway can't serve requests | Check logs: `docker logs openclaw-agent`. Rebuild: `docker compose build --no-cache` |
 | Page loads but WebSocket won't connect | Token expired or volume was reset | Get a fresh token: `docker exec -it openclaw-agent openclaw dashboard --no-open` |
+
+### API Key 401 Error — `HTTP 401 authentication_error: invalid x-api-key`
+
+This is the most common post-install issue. You type "hello" in the dashboard and get a 401 error. This means the Anthropic API **rejected your key**. Here's why and how to fix it:
+
+**Common causes:**
+
+| Cause | How to tell | Fix |
+|---|---|---|
+| **Key was revoked or deleted** | You deleted it in the Anthropic Console | Create a new key at [console.anthropic.com/settings/keys](https://console.anthropic.com/settings/keys) |
+| **Free tier rate limit hit** | Works sometimes, fails other times | Go to [console.anthropic.com/settings/limits](https://console.anthropic.com/settings/limits) and request a limit increase, or add billing |
+| **Key copied incorrectly** | Key is truncated or has extra spaces | Copy the full key again — it starts with `sk-ant-api03-` and is ~108 characters |
+| **Using a workspace key on wrong workspace** | You have multiple Anthropic workspaces | Make sure the key belongs to an active workspace with API access |
+| **Account suspended or billing issue** | Key format is correct but always fails | Log into [console.anthropic.com](https://console.anthropic.com) and check for billing alerts |
+
+**Quick fix:**
+
+```bash
+# 1. Test your key directly (replace YOUR_KEY):
+curl -s https://api.anthropic.com/v1/messages \
+  -H "x-api-key: YOUR_KEY" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "content-type: application/json" \
+  -d '{"model":"claude-sonnet-4-20250514","max_tokens":10,"messages":[{"role":"user","content":"hi"}]}'
+
+# 2. If that returns an error, get a new key from console.anthropic.com
+
+# 3. Update your key:
+nano .env
+# Replace the ANTHROPIC_API_KEY value with the new key
+
+# 4. Restart:
+docker compose restart
+```
+
+> **Workshop tip:** Before the session, test your API key with the curl command above. If it returns a response (not an error), you're good to go.
 
 ### After install (inside the container)
 
@@ -473,7 +505,7 @@ Each check has a specific error message and fix instructions if it fails.
 
 ```
 openclaw-docker-installer/
-├── docker-install.sh          # The installer (auto-troubleshooting + 5 phases)
+├── docker-install.sh          # The installer (auto-troubleshooting + 4 phases)
 ├── docker-compose.yml         # Container config (12 security layers)
 ├── Dockerfile                 # Multi-stage minimal image
 ├── docker/
