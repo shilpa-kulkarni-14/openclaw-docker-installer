@@ -16,6 +16,7 @@
 #
 # Usage:
 #   ./docker-install.sh
+#   ./docker-install.sh --keys           # Change or fix your API key
 #   ./docker-install.sh --channels      # Interactive channel picker
 #   ./docker-install.sh --stop          # Stop the agent
 #   ./docker-install.sh --uninstall     # Remove everything
@@ -79,6 +80,7 @@ FLAG_DOCTOR=false
 FLAG_VERBOSE=false
 FLAG_NO_COLOR=false
 FLAG_DRY_RUN=false
+FLAG_KEYS=false
 
 # Track auto-fixes applied
 FIXES_APPLIED=()
@@ -163,6 +165,7 @@ parse_args() {
       --verbose|-v)   FLAG_VERBOSE=true ;;
       --no-color)     FLAG_NO_COLOR=true ;;
       --dry-run)      FLAG_DRY_RUN=true ;;
+      --keys)         FLAG_KEYS=true ;;
       --help|-h)      usage; exit 0 ;;
       *) warn "Unknown option: $1" ;;
     esac
@@ -182,11 +185,13 @@ Options:
   --uninstall       Remove containers, images, and data
   --verbose, -v     Show detailed output
   --no-color        Disable colored output
+  --keys            Re-enter or change your AI provider API keys
   --dry-run         Preview actions without executing
   --help, -h        Show this help message
 
 Examples:
   ./docker-install.sh                  # Install → type "hello" in browser
+  ./docker-install.sh --keys           # Change or fix your API key
   ./docker-install.sh --channels       # Add Slack/Discord/Telegram later
   ./docker-install.sh --stop           # Stop the agent
   ./docker-install.sh --status         # Is it running?
@@ -1131,7 +1136,11 @@ configure_keys() {
       echo "OPENCLAW_GATEWAY_TOKEN=${gt}" >> "$ENV_FILE"
       log "Added OPENCLAW_GATEWAY_TOKEN to existing .env"
     fi
-    if prompt_yn "Want to update your API keys?" "n"; then
+
+    # --keys flag: skip the prompt and go straight to key entry
+    if [[ "$FLAG_KEYS" == true ]]; then
+      info "Re-entering API keys (--keys flag)"
+    elif prompt_yn "Want to update your API keys?" "n"; then
       : # fall through to prompts
     else
       # Check .env permissions while we're here
