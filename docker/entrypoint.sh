@@ -149,6 +149,74 @@ if [ "$ANY_KEY_LOADED" = false ]; then
 fi
 
 # ============================================================================
+# CHECK 2: Generate auth-profiles.json from environment keys
+# ============================================================================
+# OpenClaw reads API keys from auth-profiles.json, not directly from env vars.
+# We generate this file on every startup so it always reflects .env contents.
+# ============================================================================
+
+AUTH_DIR="$OPENCLAW_DIR/agents/main/agent"
+AUTH_FILE="$AUTH_DIR/auth-profiles.json"
+
+mkdir -p "$AUTH_DIR" 2>/dev/null || true
+
+# Build the JSON — add an entry for each loaded provider key
+# We also pick the best default model for whatever provider is available.
+DEFAULT_PROVIDER=""
+DEFAULT_MODEL=""
+
+echo '{' > "$AUTH_FILE"
+echo '  "version": 1,' >> "$AUTH_FILE"
+echo '  "profiles": {' >> "$AUTH_FILE"
+
+first_profile=true
+add_auth_profile() {
+  local provider="$1" env_var="$2" model="$3" api="$4"
+  local key_val=""
+  eval key_val="\${${env_var}:-}"
+  if [ -n "$key_val" ]; then
+    if [ "$first_profile" = false ]; then
+      echo '    ,' >> "$AUTH_FILE"
+    fi
+    first_profile=false
+    cat >> "$AUTH_FILE" <<PROFILE
+    "${provider}": {
+      "provider": "${provider}",
+      "apiKey": "${key_val}",
+      "model": "${model}",
+      "api": "${api}"
+    }
+PROFILE
+    # First loaded provider becomes the default
+    if [ -z "$DEFAULT_PROVIDER" ]; then
+      DEFAULT_PROVIDER="$provider"
+      DEFAULT_MODEL="$model"
+    fi
+  fi
+}
+
+add_auth_profile "anthropic"  "ANTHROPIC_API_KEY"  "claude-sonnet-4-20250514" "anthropic-messages"
+add_auth_profile "openai"     "OPENAI_API_KEY"     "gpt-4o"                   "openai-chat"
+add_auth_profile "google"     "GOOGLE_API_KEY"     "gemini-2.0-flash"         "google-genai"
+add_auth_profile "mistral"    "MISTRAL_API_KEY"    "mistral-large-latest"     "mistral-chat"
+add_auth_profile "groq"       "GROQ_API_KEY"       "llama-3.3-70b-versatile"  "openai-chat"
+add_auth_profile "deepseek"   "DEEPSEEK_API_KEY"   "deepseek-chat"            "openai-chat"
+add_auth_profile "openrouter" "OPENROUTER_API_KEY" "openrouter/auto"          "openai-chat"
+add_auth_profile "cohere"     "COHERE_API_KEY"     "command-r-plus"           "cohere-chat"
+
+cat >> "$AUTH_FILE" <<'FOOTER'
+  }
+}
+FOOTER
+
+chmod 600 "$AUTH_FILE"
+echo "  ✓ Auth profiles written to $AUTH_FILE"
+
+if [ -n "$DEFAULT_PROVIDER" ]; then
+  echo "  ✓ Default provider: ${DEFAULT_PROVIDER} (model: ${DEFAULT_MODEL})"
+fi
+
+# ============================================================================
 # CHECK 4: Config directory and permissions
 # ============================================================================
 
