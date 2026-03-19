@@ -7,10 +7,11 @@
 # and a specific fix. A beginner should never see a cryptic error.
 #
 # What you need to provide (via .env file):
-#   ANTHROPIC_API_KEY  — Your LLM key (required). Get at console.anthropic.com
-#   OPENAI_API_KEY     — Optional. Only if you want GPT-4 dual-model support.
+#   At least one AI provider key. Any of the following will work:
+#   ANTHROPIC_API_KEY, OPENAI_API_KEY, GOOGLE_API_KEY, MISTRAL_API_KEY,
+#   GROQ_API_KEY, DEEPSEEK_API_KEY, OPENROUTER_API_KEY, COHERE_API_KEY
 #
-# That's it. No channel tokens here — those are configured AFTER install
+# Channel tokens (Discord, Telegram, Slack, etc.) are configured AFTER install
 # by running: docker exec -it openclaw-agent openclaw configure
 # ============================================================================
 set -e
@@ -41,9 +42,9 @@ startup_error() {
 }
 
 # ============================================================================
-# CHECK 1: Load the LLM API key
+# CHECK 1: Load AI provider API keys
 # ============================================================================
-# The only key the installer asks for is the LLM key (Anthropic).
+# OpenClaw works with any supported AI provider. At least one key is required.
 # Channel tokens (Discord bot, Telegram, Slack) are configured LATER
 # via `openclaw configure` — not during install.
 # ============================================================================
@@ -51,32 +52,86 @@ startup_error() {
 echo ""
 echo "  Loading credentials..."
 
-ANTHROPIC_KEY_SOURCE="none"
+# All supported provider keys and their Docker secret file names
+PROVIDER_KEYS="ANTHROPIC_API_KEY OPENAI_API_KEY GOOGLE_API_KEY MISTRAL_API_KEY GROQ_API_KEY DEEPSEEK_API_KEY OPENROUTER_API_KEY COHERE_API_KEY"
+SECRET_FILES="anthropic_api_key openai_api_key google_api_key mistral_api_key groq_api_key deepseek_api_key openrouter_api_key cohere_api_key"
 
-# Priority 1: Docker secrets (most secure — files at /run/secrets/)
-if [ -f /run/secrets/anthropic_api_key ]; then
-  ANTHROPIC_API_KEY="$(cat /run/secrets/anthropic_api_key 2>/dev/null | tr -d '[:space:]')"
-  ANTHROPIC_KEY_SOURCE="docker-secret"
+ANY_KEY_LOADED=false
 
-# Priority 2: Environment variable (from .env file via docker-compose)
-elif [ -n "${ANTHROPIC_API_KEY:-}" ]; then
-  # Trim whitespace — the #1 copy-paste bug
-  ANTHROPIC_API_KEY="$(echo "$ANTHROPIC_API_KEY" | tr -d '[:space:]')"
-  ANTHROPIC_KEY_SOURCE="environment"
+# Load each provider key from Docker secrets or environment
+load_provider_key() {
+  local var_name="$1" secret_file="$2" display_name="$3"
+  local key_value="" key_source=""
 
-# Priority 3: No key found anywhere
-else
-  ANTHROPIC_KEY_SOURCE="missing"
-fi
+  # Priority 1: Docker secrets
+  if [ -f "/run/secrets/${secret_file}" ]; then
+    key_value="$(cat "/run/secrets/${secret_file}" 2>/dev/null | tr -d '[:space:]')"
+    key_source="docker-secret"
+  # Priority 2: Environment variable
+  else
+    eval key_value="\${${var_name}:-}"
+    if [ -n "$key_value" ]; then
+      key_value="$(echo "$key_value" | tr -d '[:space:]')"
+      key_source="environment"
+    fi
+  fi
 
-# ── Diagnose every possible key problem ──────────────────────────────────────
+  if [ -n "$key_value" ]; then
+    # Strip quotes if present
+    case "$key_value" in
+      \"*\"|\'*\')
+        key_value="$(echo "$key_value" | tr -d "\"'")"
+        echo "  ⚠ ${display_name}: stripped quotes from key"
+        ;;
+    esac
 
-if [ "$ANTHROPIC_KEY_SOURCE" = "missing" ]; then
-  startup_error "ERROR: No Anthropic API key found."
+    # Clean invisible characters
+    clean_value="$(echo "$key_value" | tr -cd 'a-zA-Z0-9_.-')"
+    if [ "$clean_value" != "$key_value" ]; then
+      key_value="$clean_value"
+      echo "  ⚠ ${display_name}: cleaned invisible characters from key"
+    fi
+
+    # Reject URLs and placeholders
+    case "$key_value" in
+      http://*|https://*)
+        echo "  ✗ ${display_name}: looks like a URL, not an API key — skipping"
+        return
+        ;;
+      your-key-here*|YOUR_KEY*|*your-*)
+        echo "  ✗ ${display_name}: placeholder text, not a real key — skipping"
+        return
+        ;;
+    esac
+
+    # Check minimum length
+    if [ "${#key_value}" -lt 10 ]; then
+      echo "  ⚠ ${display_name}: key is very short (${#key_value} chars) — may be truncated"
+    fi
+
+    export "${var_name}=${key_value}"
+    echo "  ✓ ${display_name} loaded (${key_source}): $(mask_key "$key_value")"
+    ANY_KEY_LOADED=true
+  fi
+}
+
+load_provider_key "ANTHROPIC_API_KEY"  "anthropic_api_key"  "Anthropic"
+load_provider_key "OPENAI_API_KEY"     "openai_api_key"     "OpenAI"
+load_provider_key "GOOGLE_API_KEY"     "google_api_key"     "Google Gemini"
+load_provider_key "MISTRAL_API_KEY"    "mistral_api_key"    "Mistral"
+load_provider_key "GROQ_API_KEY"       "groq_api_key"       "Groq"
+load_provider_key "DEEPSEEK_API_KEY"   "deepseek_api_key"   "DeepSeek"
+load_provider_key "OPENROUTER_API_KEY" "openrouter_api_key" "OpenRouter"
+load_provider_key "COHERE_API_KEY"     "cohere_api_key"     "Cohere"
+
+if [ "$ANY_KEY_LOADED" = false ]; then
+  startup_error "ERROR: No AI provider API key found."
   echo ""
   echo "  ┌─────────────────────────────────────────────────────────────┐"
-  echo "  │ The LLM key is the ONLY key the installer needs.           │"
-  echo "  │ It connects OpenClaw to Claude (the AI that powers it).    │"
+  echo "  │ OpenClaw needs at least one AI provider key to work.       │"
+  echo "  │ Any of these will do:                                       │"
+  echo "  │   Anthropic, OpenAI, Google Gemini, Mistral, Groq,         │"
+  echo "  │   DeepSeek, OpenRouter, or Cohere.                         │"
   echo "  │                                                             │"
   echo "  │ Channel tokens (Discord, Telegram, Slack, etc.) are        │"
   echo "  │ configured LATER — not here.                               │"
@@ -87,166 +142,14 @@ if [ "$ANTHROPIC_KEY_SOURCE" = "missing" ]; then
   echo "  1. Open your .env file (in the project folder):"
   echo "       nano .env"
   echo ""
-  echo "  2. Add this line (replace with your actual key):"
+  echo "  2. Add at least one provider key, for example:"
   echo "       ANTHROPIC_API_KEY=sk-ant-api03-xxxxxxxxxxxx"
+  echo "       OPENAI_API_KEY=sk-proj-xxxxxxxxxxxx"
   echo ""
   echo "  3. Restart the container:"
   echo "       docker compose restart"
   echo ""
-  echo "  Don't have a key?"
-  echo "    → Sign up free at: https://console.anthropic.com"
-  echo "    → Go to API Keys → Create Key → Copy it"
-  echo ""
   exit 1
-
-elif [ -z "$ANTHROPIC_API_KEY" ]; then
-  startup_error "ERROR: ANTHROPIC_API_KEY is set but empty (blank value)."
-  echo ""
-  echo "  This usually means your .env file has the line:"
-  echo "    ANTHROPIC_API_KEY="
-  echo ""
-  echo "  But no key after the = sign."
-  echo ""
-  echo "  Fix: Open .env and paste your full key after the ="
-  echo "    ANTHROPIC_API_KEY=sk-ant-api03-xxxxxxxxxxxx"
-  echo ""
-  echo "  Then restart: docker compose restart"
-  echo ""
-  exit 1
-
-else
-  export ANTHROPIC_API_KEY
-  echo "  ✓ Anthropic key loaded (${ANTHROPIC_KEY_SOURCE}): $(mask_key "$ANTHROPIC_API_KEY")"
-fi
-
-# ============================================================================
-# CHECK 2: Validate the LLM key format
-# ============================================================================
-# Every known bad format gets its own error message.
-# ============================================================================
-
-key_len="${#ANTHROPIC_API_KEY}"
-
-# ── Is it way too short? (probably truncated during copy) ──
-if [ "$key_len" -lt 10 ]; then
-  startup_error "ERROR: API key is only $key_len characters. That's way too short."
-  echo ""
-  echo "  You probably didn't copy the full key."
-  echo "  Go to https://console.anthropic.com/settings/keys"
-  echo "  Click the key to copy it, then paste the FULL thing into .env"
-  echo ""
-  echo "  Then restart: docker compose restart"
-  echo ""
-  exit 1
-
-elif [ "$key_len" -lt 40 ]; then
-  echo "  ⚠ WARNING: API key seems short ($key_len chars). Full keys are usually 100+ chars."
-  echo "    Did you copy the entire key? Double-check at console.anthropic.com"
-fi
-
-# ── Does it look like the wrong type of key? ──
-case "$ANTHROPIC_API_KEY" in
-
-  # Correct format
-  sk-ant-api03-*)
-    echo "  ✓ API key format: valid (sk-ant-api03-...)"
-    ;;
-
-  # Older Anthropic format (still valid)
-  sk-ant-*)
-    echo "  ✓ API key format: valid (sk-ant-...)"
-    ;;
-
-  # User pasted an OpenAI key by mistake
-  sk-proj-*)
-    echo "  ⚠ WARNING: This looks like an OpenAI PROJECT key (starts with sk-proj-)."
-    echo "    OpenClaw needs an ANTHROPIC key, not OpenAI."
-    echo "    Get one at: https://console.anthropic.com/settings/keys"
-    echo "    Continuing anyway in case this is intentional..."
-    ;;
-
-  sk-*)
-    echo "  ⚠ WARNING: Key starts with sk- but not sk-ant-."
-    echo "    This might be an OpenAI key pasted in the wrong field."
-    echo "    Anthropic keys look like: sk-ant-api03-xxxxxxx"
-    echo "    Continuing anyway..."
-    ;;
-
-  # User pasted something that's clearly not an API key
-  http://*|https://*)
-    startup_error "ERROR: You pasted a URL, not an API key."
-    echo "    API keys are long strings like: sk-ant-api03-xxxxxxx"
-    echo "    URLs start with http:// — that's a website address, not a key."
-    echo ""
-    echo "    Get your key at: https://console.anthropic.com/settings/keys"
-    echo "    Then restart: docker compose restart"
-    exit 1
-    ;;
-
-  # User pasted the placeholder from .env.example
-  your-key-here*|YOUR_KEY*|sk-ant-your-*)
-    startup_error "ERROR: You left the placeholder text instead of pasting your real key."
-    echo "    Open .env and replace the placeholder with your actual Anthropic key."
-    echo "    Then restart: docker compose restart"
-    exit 1
-    ;;
-
-  # Has quotes around it (common .env mistake)
-  \"*\"|\'*\')
-    echo "  ⚠ WARNING: Your key has quotes around it. Removing them..."
-    ANTHROPIC_API_KEY="$(echo "$ANTHROPIC_API_KEY" | tr -d "\"'")"
-    export ANTHROPIC_API_KEY
-    echo "  ✓ Quotes stripped. Key is now: $(mask_key "$ANTHROPIC_API_KEY")"
-    echo "    Tip: In .env files, don't wrap values in quotes."
-    ;;
-
-  # Completely unrecognized format
-  *)
-    echo "  ⚠ WARNING: Unrecognized key format (doesn't start with sk-ant-)."
-    echo "    Expected: sk-ant-api03-xxxxxxx"
-    echo "    Got: $(mask_key "$ANTHROPIC_API_KEY")"
-    echo "    Continuing anyway — you may be using a newer key format."
-    ;;
-esac
-
-# ── Check for invisible characters (another common copy-paste bug) ──
-clean_key="$(echo "$ANTHROPIC_API_KEY" | tr -cd 'a-zA-Z0-9_-')"
-if [ "$clean_key" != "$ANTHROPIC_API_KEY" ]; then
-  echo "  ⚠ WARNING: Key contains invisible/special characters. Cleaning..."
-  ANTHROPIC_API_KEY="$clean_key"
-  export ANTHROPIC_API_KEY
-  echo "  ✓ Cleaned key: $(mask_key "$ANTHROPIC_API_KEY")"
-fi
-
-# ============================================================================
-# CHECK 3: Load optional OpenAI key (same validation)
-# ============================================================================
-
-if [ -f /run/secrets/openai_api_key ]; then
-  OPENAI_API_KEY="$(cat /run/secrets/openai_api_key 2>/dev/null | tr -d '[:space:]')"
-  export OPENAI_API_KEY
-  echo "  ✓ OpenAI key loaded (Docker secret): $(mask_key "$OPENAI_API_KEY")"
-elif [ -n "${OPENAI_API_KEY:-}" ]; then
-  OPENAI_API_KEY="$(echo "$OPENAI_API_KEY" | tr -d '[:space:]')"
-  export OPENAI_API_KEY
-
-  # Validate OpenAI key
-  case "$OPENAI_API_KEY" in
-    sk-proj-*|sk-*)
-      echo "  ✓ OpenAI key loaded (environment): $(mask_key "$OPENAI_API_KEY")"
-      ;;
-    sk-ant-*)
-      echo "  ⚠ The OPENAI_API_KEY looks like an Anthropic key (sk-ant-)."
-      echo "    You may have put the same key in both fields."
-      echo "    OpenAI keys look like: sk-proj-xxxxxxx"
-      echo "    Continuing anyway..."
-      ;;
-    *)
-      echo "  ⚠ OpenAI key has unusual format. Continuing anyway."
-      ;;
-  esac
-else
-  echo "  ℹ OpenAI key: not set (optional — only needed for dual-model)"
 fi
 
 # ============================================================================
@@ -568,12 +471,12 @@ fi
 # CHECK 10: Network connectivity
 # ============================================================================
 
-# Test DNS + HTTP to the Anthropic API
+# Test DNS + HTTP connectivity (use a reliable public endpoint)
 if command -v wget >/dev/null 2>&1; then
-  if wget -q --spider --timeout=5 https://api.anthropic.com 2>/dev/null; then
-    echo "  ✓ Network: can reach Anthropic API"
+  if wget -q --spider --timeout=5 https://dns.google 2>/dev/null; then
+    echo "  ✓ Network: outbound HTTPS working"
   else
-    echo "  ⚠ Network: cannot reach api.anthropic.com"
+    echo "  ⚠ Network: cannot reach the internet"
     echo "    The agent may not be able to generate responses."
     echo ""
     echo "    Common causes:"
@@ -585,10 +488,10 @@ if command -v wget >/dev/null 2>&1; then
     echo "    Continuing anyway (will fail when you send the agent a message)..."
   fi
 elif command -v curl >/dev/null 2>&1; then
-  if curl -sf --max-time 5 https://api.anthropic.com >/dev/null 2>&1; then
-    echo "  ✓ Network: can reach Anthropic API"
+  if curl -sf --max-time 5 https://dns.google >/dev/null 2>&1; then
+    echo "  ✓ Network: outbound HTTPS working"
   else
-    echo "  ⚠ Network: cannot reach api.anthropic.com"
+    echo "  ⚠ Network: cannot reach the internet"
     echo "    See above for common causes. Continuing anyway..."
   fi
 else
@@ -624,7 +527,7 @@ echo "  │ Gateway:    port 18789 (localhost only from host)│"
 echo "  │ Auth:       token-based (64-char random hex)     │"
 echo "  │ Permissions: 700/600 (owner only)                │"
 echo "  │ Sandbox:    skill isolation active                │"
-echo "  │ LLM key:    loaded ✓                             │"
+echo "  │ AI keys:    loaded ✓                             │"
 echo "  └─────────────────────────────────────────────────┘"
 echo ""
 echo "  Next step: Configure your channel (Discord, Telegram, etc.):"

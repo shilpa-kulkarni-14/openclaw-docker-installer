@@ -1115,131 +1115,122 @@ check_network_connectivity() {
 configure_keys() {
   step 2 4 "Configuring API keys"
 
-  # Check if .env already exists with a key
-  if [[ -f "$ENV_FILE" ]] && grep -q "ANTHROPIC_API_KEY=sk-" "$ENV_FILE" 2>/dev/null; then
-    # Validate the existing key format
-    local existing_key
-    existing_key="$(grep '^ANTHROPIC_API_KEY=' "$ENV_FILE" | cut -d= -f2-)"
-    if validate_api_key "$existing_key"; then
-      success "API key already configured and valid in .env"
-      # Read existing gateway token if present
-      if grep -q '^OPENCLAW_GATEWAY_TOKEN=' "$ENV_FILE" 2>/dev/null; then
-        GENERATED_GATEWAY_TOKEN="$(grep '^OPENCLAW_GATEWAY_TOKEN=' "$ENV_FILE" | cut -d= -f2-)"
-      else
-        # Existing .env doesn't have a gateway token — add one
-        local gt=""
-        gt="$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' 2>/dev/null || printf '%04x%04x%04x%04x%04x%04x%04x%04x' $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM)"
-        GENERATED_GATEWAY_TOKEN="$gt"
-        echo "" >> "$ENV_FILE"
-        echo "# Gateway token — auto-generated" >> "$ENV_FILE"
-        echo "OPENCLAW_GATEWAY_TOKEN=${gt}" >> "$ENV_FILE"
-        log "Added OPENCLAW_GATEWAY_TOKEN to existing .env"
-      fi
-      if prompt_yn "Want to update your API key?" "n"; then
-        : # fall through to prompts
-      else
-        # Check .env permissions while we're here
-        fix_env_permissions
-        return 0
-      fi
+  # Check if .env already exists with at least one provider key
+  if [[ -f "$ENV_FILE" ]] && env_has_any_provider_key "$ENV_FILE"; then
+    success "API key(s) already configured in .env"
+    # Read existing gateway token if present
+    if grep -q '^OPENCLAW_GATEWAY_TOKEN=' "$ENV_FILE" 2>/dev/null; then
+      GENERATED_GATEWAY_TOKEN="$(grep '^OPENCLAW_GATEWAY_TOKEN=' "$ENV_FILE" | cut -d= -f2-)"
     else
-      warn "Existing API key in .env looks malformed"
-      info "Let's set a new one."
+      # Existing .env doesn't have a gateway token — add one
+      local gt=""
+      gt="$(openssl rand -hex 32 2>/dev/null || head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' 2>/dev/null || printf '%04x%04x%04x%04x%04x%04x%04x%04x' $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM $RANDOM)"
+      GENERATED_GATEWAY_TOKEN="$gt"
+      echo "" >> "$ENV_FILE"
+      echo "# Gateway token — auto-generated" >> "$ENV_FILE"
+      echo "OPENCLAW_GATEWAY_TOKEN=${gt}" >> "$ENV_FILE"
+      log "Added OPENCLAW_GATEWAY_TOKEN to existing .env"
+    fi
+    if prompt_yn "Want to update your API keys?" "n"; then
+      : # fall through to prompts
+    else
+      # Check .env permissions while we're here
+      fix_env_permissions
+      return 0
     fi
   fi
 
   echo ""
-  info "Your API key connects OpenClaw to the Claude AI."
-  info "Get one free at: ${UNDERLINE}https://console.anthropic.com${RESET}"
+  info "Your API key connects OpenClaw to an AI provider."
+  info "Pick at least one — you can add more now or later."
   echo ""
 
-  # ── Anthropic Key (with validation + retry) ──
-  local anthropic_key=""
-  local attempts=0
-
-  while [[ $attempts -lt 3 ]]; do
-    prompt_secret "Anthropic API key (sk-ant-...): " anthropic_key
-
-    if [[ -z "$anthropic_key" ]]; then
-      warn "No key entered. You can add it later by editing .env"
-      if [[ ! -f "$ENV_FILE" ]]; then
-        cp "$SCRIPT_DIR/.env.example" "$ENV_FILE"
-        chmod 600 "$ENV_FILE"
-      fi
-      return 0
-    fi
-
-    if validate_api_key "$anthropic_key"; then
-      break
-    fi
-
-    attempts=$((attempts + 1))
-    if [[ $attempts -lt 3 ]]; then
-      warn "That doesn't look like a valid Anthropic key."
-      echo ""
-      echo -e "  ${BOLD}A valid key:${RESET}"
-      echo -e "    • Starts with ${CYAN}sk-ant-${RESET}"
-      echo -e "    • Is about 100+ characters long"
-      echo -e "    • Contains only letters, numbers, dashes, and underscores"
-      echo -e "    • Get yours at: ${UNDERLINE}https://console.anthropic.com/settings/keys${RESET}"
-      echo ""
-      info "Let's try again (attempt $((attempts + 1))/3)..."
+  # ── AI Provider picker ──
+  echo -e "  ${BOLD}Which AI providers do you want to use?${RESET}"
+  echo ""
+  echo -e "    ${CYAN}1${RESET}) Anthropic (Claude)         ${DIM}console.anthropic.com${RESET}"
+  echo -e "    ${CYAN}2${RESET}) OpenAI (GPT-4)             ${DIM}platform.openai.com${RESET}"
+  echo -e "    ${CYAN}3${RESET}) Google Gemini               ${DIM}aistudio.google.com${RESET}"
+  echo -e "    ${CYAN}4${RESET}) Mistral                     ${DIM}console.mistral.ai${RESET}"
+  echo -e "    ${CYAN}5${RESET}) Groq (fast Llama/Mixtral)   ${DIM}console.groq.com${RESET}"
+  echo -e "    ${CYAN}6${RESET}) DeepSeek                    ${DIM}platform.deepseek.com${RESET}"
+  echo -e "    ${CYAN}7${RESET}) OpenRouter (100+ models)    ${DIM}openrouter.ai${RESET}"
+  echo -e "    ${CYAN}8${RESET}) Cohere                      ${DIM}dashboard.cohere.com${RESET}"
+  echo ""
+  echo -e "  ${DIM}Enter numbers separated by spaces (e.g. 1 2), at least one required${RESET}"
+  local llm_selection=""
+  while [[ -z "$llm_selection" ]]; do
+    read -rp "  Select providers: " llm_selection
+    if [[ -z "$llm_selection" ]]; then
+      warn "You need at least one AI provider. Pick a number from the list above."
     fi
   done
 
-  if [[ $attempts -ge 3 ]] && ! validate_api_key "$anthropic_key"; then
-    warn "Key validation failed 3 times. Saving anyway (you might know something we don't)."
-  fi
-
-  # ── Additional LLM providers (interactive picker) ──
-  echo ""
-  echo -e "  ${BOLD}Want to add more AI providers?${RESET} ${DIM}(OpenClaw can use multiple LLMs)${RESET}"
-  echo ""
-  echo -e "    ${CYAN}1${RESET}) OpenAI (GPT-4)           ${DIM}platform.openai.com${RESET}"
-  echo -e "    ${CYAN}2${RESET}) Google Gemini             ${DIM}aistudio.google.com${RESET}"
-  echo -e "    ${CYAN}3${RESET}) Mistral                   ${DIM}console.mistral.ai${RESET}"
-  echo -e "    ${CYAN}4${RESET}) Groq (fast Llama/Mixtral)  ${DIM}console.groq.com${RESET}"
-  echo -e "    ${CYAN}5${RESET}) DeepSeek                  ${DIM}platform.deepseek.com${RESET}"
-  echo -e "    ${CYAN}6${RESET}) OpenRouter (100+ models)   ${DIM}openrouter.ai${RESET}"
-  echo -e "    ${CYAN}7${RESET}) Cohere                    ${DIM}dashboard.cohere.com${RESET}"
-  echo ""
-  echo -e "  ${DIM}Enter numbers separated by spaces, or press Enter to skip${RESET}"
-  local llm_selection=""
-  read -rp "  Add providers [Enter to skip]: " llm_selection
-
-  local openai_key="" google_key="" mistral_key="" groq_key="" deepseek_key="" openrouter_key="" cohere_key=""
+  local anthropic_key="" openai_key="" google_key="" mistral_key="" groq_key="" deepseek_key="" openrouter_key="" cohere_key=""
+  local any_key_set=false
 
   for num in $llm_selection; do
     case "$num" in
       1)
-        prompt_secret "  OpenAI API key (sk-proj-...): " openai_key
-        if [[ -n "$openai_key" ]] && ! validate_openai_key "$openai_key"; then
-          warn "Doesn't look like a standard OpenAI key. Saving anyway."
+        prompt_secret "  Anthropic API key (sk-ant-...): " anthropic_key
+        if [[ -n "$anthropic_key" ]]; then
+          if validate_provider_key "anthropic" "$anthropic_key"; then
+            any_key_set=true
+          else
+            warn "Doesn't look like a standard Anthropic key. Saving anyway."
+            any_key_set=true
+          fi
         fi
         ;;
       2)
-        prompt_secret "  Google Gemini API key (AIza...): " google_key
+        prompt_secret "  OpenAI API key (sk-proj-...): " openai_key
+        if [[ -n "$openai_key" ]]; then
+          if validate_provider_key "openai" "$openai_key"; then
+            any_key_set=true
+          else
+            warn "Doesn't look like a standard OpenAI key. Saving anyway."
+            any_key_set=true
+          fi
+        fi
         ;;
       3)
-        prompt_secret "  Mistral API key: " mistral_key
+        prompt_secret "  Google Gemini API key (AIza...): " google_key
+        [[ -n "$google_key" ]] && any_key_set=true
         ;;
       4)
-        prompt_secret "  Groq API key (gsk_...): " groq_key
+        prompt_secret "  Mistral API key: " mistral_key
+        [[ -n "$mistral_key" ]] && any_key_set=true
         ;;
       5)
-        prompt_secret "  DeepSeek API key: " deepseek_key
+        prompt_secret "  Groq API key (gsk_...): " groq_key
+        [[ -n "$groq_key" ]] && any_key_set=true
         ;;
       6)
-        prompt_secret "  OpenRouter API key (sk-or-...): " openrouter_key
+        prompt_secret "  DeepSeek API key: " deepseek_key
+        [[ -n "$deepseek_key" ]] && any_key_set=true
         ;;
       7)
+        prompt_secret "  OpenRouter API key (sk-or-...): " openrouter_key
+        [[ -n "$openrouter_key" ]] && any_key_set=true
+        ;;
+      8)
         prompt_secret "  Cohere API key: " cohere_key
+        [[ -n "$cohere_key" ]] && any_key_set=true
         ;;
       *)
         warn "Invalid selection: $num (skipping)"
         ;;
     esac
   done
+
+  if [[ "$any_key_set" != true ]]; then
+    warn "No keys entered. You can add them later by editing .env"
+    if [[ ! -f "$ENV_FILE" ]]; then
+      cp "$SCRIPT_DIR/.env.example" "$ENV_FILE"
+      chmod 600 "$ENV_FILE"
+    fi
+    return 0
+  fi
 
   # ── Channel selection (opt-in only — default is webchat via dashboard) ──
   # The core install gives users a working webchat in the browser immediately.
@@ -1276,14 +1267,13 @@ configure_keys() {
 # Generated by docker-install.sh on $(date)
 # This file is git-ignored and never committed.
 
-ANTHROPIC_API_KEY=${anthropic_key}
-
 # Gateway token — used to authenticate with the dashboard
 # The installer auto-generates this and prints the full URL at the end
 OPENCLAW_GATEWAY_TOKEN=${gateway_token}
 EOF
 
-  # Write all LLM provider keys
+  # Write all configured provider keys
+  [[ -n "$anthropic_key" ]]  && echo "ANTHROPIC_API_KEY=${anthropic_key}" >> "$ENV_FILE"
   [[ -n "$openai_key" ]]     && echo "OPENAI_API_KEY=${openai_key}" >> "$ENV_FILE"
   [[ -n "$google_key" ]]     && echo "GOOGLE_API_KEY=${google_key}" >> "$ENV_FILE"
   [[ -n "$mistral_key" ]]    && echo "MISTRAL_API_KEY=${mistral_key}" >> "$ENV_FILE"
@@ -1318,14 +1308,35 @@ EOF
 }
 
 validate_api_key() {
+  # Legacy wrapper — validates any provider key (at least 20 chars, printable)
   local key="$1"
-  # Anthropic keys start with sk-ant- and are long
-  [[ "$key" =~ ^sk-ant-[a-zA-Z0-9_-]{20,}$ ]]
+  [[ ${#key} -ge 20 && "$key" =~ ^[a-zA-Z0-9_.:-]{20,}$ ]]
 }
 
-validate_openai_key() {
-  local key="$1"
-  [[ "$key" =~ ^sk-[a-zA-Z0-9_-]{20,}$ ]]
+validate_provider_key() {
+  local provider="$1" key="$2"
+  case "$provider" in
+    anthropic)  [[ "$key" =~ ^sk-ant-[a-zA-Z0-9_-]{20,}$ ]] ;;
+    openai)     [[ "$key" =~ ^sk-[a-zA-Z0-9_-]{20,}$ ]] ;;
+    google)     [[ "$key" =~ ^AIza[a-zA-Z0-9_-]{20,}$ ]] ;;
+    groq)       [[ "$key" =~ ^gsk_[a-zA-Z0-9_-]{20,}$ ]] ;;
+    openrouter) [[ "$key" =~ ^sk-or-[a-zA-Z0-9_-]{20,}$ ]] ;;
+    *)          [[ ${#key} -ge 20 ]] ;;  # Generic: just check length
+  esac
+}
+
+# Check if an .env file has at least one provider API key set
+env_has_any_provider_key() {
+  local env_file="$1"
+  local providers="ANTHROPIC_API_KEY OPENAI_API_KEY GOOGLE_API_KEY MISTRAL_API_KEY GROQ_API_KEY DEEPSEEK_API_KEY OPENROUTER_API_KEY COHERE_API_KEY"
+  for var in $providers; do
+    local val
+    val="$(grep "^${var}=" "$env_file" 2>/dev/null | cut -d= -f2-)"
+    if [[ -n "$val" ]]; then
+      return 0
+    fi
+  done
+  return 1
 }
 
 fix_env_permissions() {
@@ -1763,37 +1774,24 @@ diagnose_container_crash() {
   logs="$(docker logs "$CONTAINER_NAME" 2>&1 || echo '')"
 
   # ── Missing API key ──
-  if echo "$logs" | grep -qi "No Anthropic API key\|ANTHROPIC_API_KEY.*not found"; then
-    error "The container can't find your LLM API key."
+  if echo "$logs" | grep -qi "API.key.*not found\|API_KEY.*not found\|No.*API key"; then
+    error "The container can't find any AI provider API key."
     echo ""
-    echo -e "  ${BOLD}This is the only key the installer needs.${RESET}"
-    echo -e "  It's the Anthropic key that lets the AI work."
+    echo -e "  ${BOLD}You need at least one API key to power the AI.${RESET}"
     echo ""
     echo -e "  ${BOLD}Fix:${RESET}"
     echo -e "    1. Check your .env file: ${CYAN}cat .env${RESET}"
-    echo -e "    2. Make sure it has: ${CYAN}ANTHROPIC_API_KEY=sk-ant-...${RESET}"
+    echo -e "    2. Make sure at least one provider key is set (e.g. ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.)"
     echo -e "    3. Re-run: ${CYAN}./docker-install.sh${RESET}"
     return
   fi
 
   # ── Empty API key ──
-  if echo "$logs" | grep -qi "ANTHROPIC_API_KEY is.*empty\|empty.*blank"; then
-    error "The API key line exists in .env but has no value after the = sign."
+  if echo "$logs" | grep -qi "API_KEY is.*empty\|empty.*blank"; then
+    error "An API key line exists in .env but has no value after the = sign."
     echo ""
-    echo -e "  ${BOLD}Fix:${RESET} Open .env and paste your full key:"
-    echo -e "    ${CYAN}ANTHROPIC_API_KEY=sk-ant-api03-your-actual-key-here${RESET}"
+    echo -e "  ${BOLD}Fix:${RESET} Open .env and paste your full key next to the provider you chose."
     echo -e "    Then: ${CYAN}docker compose restart${RESET}"
-    return
-  fi
-
-  # ── Wrong key type (OpenAI key in Anthropic field) ──
-  if echo "$logs" | grep -qi "looks like an OpenAI.*key\|sk-proj-"; then
-    error "You put an OpenAI key where the Anthropic key goes."
-    echo ""
-    echo -e "  ${BOLD}Fix:${RESET}"
-    echo -e "    • ANTHROPIC_API_KEY should start with ${CYAN}sk-ant-${RESET}"
-    echo -e "    • OpenAI keys (sk-proj-) go in OPENAI_API_KEY (optional)"
-    echo -e "    • Get an Anthropic key at: ${UNDERLINE}https://console.anthropic.com${RESET}"
     return
   fi
 
@@ -1801,7 +1799,7 @@ diagnose_container_crash() {
   if echo "$logs" | grep -qi "too short\|only.*characters"; then
     error "Your API key is too short — it was probably cut off during copy-paste."
     echo ""
-    echo -e "  ${BOLD}Fix:${RESET} Go to console.anthropic.com, copy the FULL key, paste into .env"
+    echo -e "  ${BOLD}Fix:${RESET} Go to your AI provider's console, copy the FULL key, paste into .env"
     echo -e "    Then: ${CYAN}docker compose restart${RESET}"
     return
   fi
@@ -2752,16 +2750,17 @@ run_doctor() {
       fi
     fi
 
-    # Check key format
-    local key_value
-    key_value="$(grep '^ANTHROPIC_API_KEY=' "$ENV_FILE" 2>/dev/null | cut -d= -f2-)"
-    if [[ -z "$key_value" ]]; then
-      error "ANTHROPIC_API_KEY is empty in .env"
-      problems=$((problems + 1))
-    elif validate_api_key "$key_value"; then
-      success "API key format looks valid (sk-ant-...)"
+    # Check that at least one provider key is set
+    if env_has_any_provider_key "$ENV_FILE"; then
+      local found_providers=""
+      grep -E '^(ANTHROPIC|OPENAI|GOOGLE|MISTRAL|GROQ|DEEPSEEK|OPENROUTER|COHERE)_API_KEY=.+' "$ENV_FILE" 2>/dev/null | while IFS='=' read -r k _; do
+        found_providers="${found_providers:+$found_providers, }$k"
+      done
+      success "API key(s) configured in .env"
     else
-      warn "API key format looks unusual (doesn't start with sk-ant-)"
+      error "No AI provider API key found in .env"
+      problems=$((problems + 1))
+      info "Fix: Re-run ${BOLD}./docker-install.sh${RESET} and select at least one provider"
     fi
   else
     error ".env file missing"

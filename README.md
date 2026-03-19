@@ -14,11 +14,11 @@ Follow these steps in order. The installer handles everything — Docker, securi
 
 Before running the installer, you need an API key from at least one AI provider. This is what powers the AI brain.
 
-**Pick your AI provider** (you need at least Anthropic — the rest are optional):
+**Pick at least one AI provider** (any will work — add as many as you like):
 
 | Provider | Free Tier? | How to Get Your Key |
 |---|---|---|
-| **Anthropic (Claude)** — Required | Yes | Go to [console.anthropic.com](https://console.anthropic.com) → Sign up → API Keys → Create Key → Copy it |
+| **Anthropic (Claude)** | Yes | Go to [console.anthropic.com](https://console.anthropic.com) → Sign up → API Keys → Create Key → Copy it |
 | **OpenAI (GPT-4)** | Yes | Go to [platform.openai.com/api-keys](https://platform.openai.com/api-keys) → Sign up → Create Key → Copy it |
 | **Google Gemini** | Yes | Go to [aistudio.google.com/apikey](https://aistudio.google.com/apikey) → Create Key → Copy it |
 | **Mistral** | Yes | Go to [console.mistral.ai](https://console.mistral.ai) → API Keys → Create → Copy it |
@@ -475,7 +475,7 @@ curl -s https://api.anthropic.com/v1/messages \
 
 # 3. Update your key:
 nano .env
-# Replace the ANTHROPIC_API_KEY value with the new key
+# Replace or add your AI provider API key
 
 # 4. Restart:
 docker compose restart
@@ -487,15 +487,13 @@ docker compose restart
 
 | Error in logs | Cause | Fix |
 |---|---|---|
-| "No Anthropic API key found" | Key missing from .env | Add `ANTHROPIC_API_KEY=sk-ant-...` to .env, restart |
-| "ANTHROPIC_API_KEY is empty" | Line exists but no value | Paste full key after = in .env |
-| "looks like an OpenAI key" | Wrong key type pasted | Anthropic keys start with sk-ant-, not sk-proj- |
-| "too short" | Key truncated during copy | Copy full key from console.anthropic.com |
+| "No AI provider API key found" | No key in .env | Add at least one provider key to .env, restart |
+| "key is very short" | Key truncated during copy | Copy full key from your provider's console |
 | "placeholder text" | Forgot to replace example | Put real key in .env, not "your-key-here" |
 | "Config directory not writable" | Volume permissions | `docker volume rm openclaw-data`, re-run installer |
 | "invalid JSON" | Config file corrupted | Restart container (auto-recovers) |
 | "OpenClaw binary not found" | Image corrupted | `docker compose build --no-cache` |
-| "cannot reach api.anthropic.com" | No internet in container | Restart Docker Desktop, check connection |
+| "cannot reach the internet" | No internet in container | Restart Docker Desktop, check connection |
 | Exit code 137 | Out of memory | Increase `memory: 1G` to `2G` in docker-compose.yml |
 | Exit code 139 | Crash (segfault) | `./docker-install.sh --uninstall && ./docker-install.sh` |
 
