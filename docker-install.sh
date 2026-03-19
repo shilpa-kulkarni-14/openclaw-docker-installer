@@ -1368,14 +1368,16 @@ EOF
   success "API keys saved securely"
 
   # Show what was configured
-  local providers="Anthropic"
-  [[ -n "$openai_key" ]]     && providers+=", OpenAI"
-  [[ -n "$google_key" ]]     && providers+=", Google Gemini"
-  [[ -n "$mistral_key" ]]    && providers+=", Mistral"
-  [[ -n "$groq_key" ]]       && providers+=", Groq"
-  [[ -n "$deepseek_key" ]]   && providers+=", DeepSeek"
-  [[ -n "$openrouter_key" ]] && providers+=", OpenRouter"
-  [[ -n "$cohere_key" ]]     && providers+=", Cohere"
+  local providers=""
+  [[ -n "$anthropic_key" ]]  && providers+="Anthropic, "
+  [[ -n "$openai_key" ]]     && providers+="OpenAI, "
+  [[ -n "$google_key" ]]     && providers+="Google Gemini, "
+  [[ -n "$mistral_key" ]]    && providers+="Mistral, "
+  [[ -n "$groq_key" ]]       && providers+="Groq, "
+  [[ -n "$deepseek_key" ]]   && providers+="DeepSeek, "
+  [[ -n "$openrouter_key" ]] && providers+="OpenRouter, "
+  [[ -n "$cohere_key" ]]     && providers+="Cohere, "
+  providers="${providers%, }"  # strip trailing ", "
   info "LLM providers: ${BOLD}${providers}${RESET}"
 
   if [[ -n "$channels" ]]; then
@@ -1383,11 +1385,6 @@ EOF
   fi
 }
 
-validate_api_key() {
-  # Legacy wrapper — validates any provider key (at least 20 chars, printable)
-  local key="$1"
-  [[ ${#key} -ge 20 && "$key" =~ ^[a-zA-Z0-9_.:-]{20,}$ ]]
-}
 
 validate_provider_key() {
   local provider="$1" key="$2"
@@ -2829,10 +2826,10 @@ run_doctor() {
     # Check that at least one provider key is set
     if env_has_any_provider_key "$ENV_FILE"; then
       local found_providers=""
-      grep -E '^(ANTHROPIC|OPENAI|GOOGLE|MISTRAL|GROQ|DEEPSEEK|OPENROUTER|COHERE)_API_KEY=.+' "$ENV_FILE" 2>/dev/null | while IFS='=' read -r k _; do
+      while IFS='=' read -r k _; do
         found_providers="${found_providers:+$found_providers, }$k"
-      done
-      success "API key(s) configured in .env"
+      done < <(grep -E '^(ANTHROPIC|OPENAI|GOOGLE|MISTRAL|GROQ|DEEPSEEK|OPENROUTER|COHERE)_API_KEY=.+' "$ENV_FILE" 2>/dev/null)
+      success "API key(s) configured in .env: ${BOLD}${found_providers}${RESET}"
     else
       error "No AI provider API key found in .env"
       problems=$((problems + 1))

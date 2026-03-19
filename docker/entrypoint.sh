@@ -52,10 +52,6 @@ startup_error() {
 echo ""
 echo "  Loading credentials..."
 
-# All supported provider keys and their Docker secret file names
-PROVIDER_KEYS="ANTHROPIC_API_KEY OPENAI_API_KEY GOOGLE_API_KEY MISTRAL_API_KEY GROQ_API_KEY DEEPSEEK_API_KEY OPENROUTER_API_KEY COHERE_API_KEY"
-SECRET_FILES="anthropic_api_key openai_api_key google_api_key mistral_api_key groq_api_key deepseek_api_key openrouter_api_key cohere_api_key"
-
 ANY_KEY_LOADED=false
 
 # Load each provider key from Docker secrets or environment
