@@ -82,6 +82,9 @@ FLAG_NO_COLOR=false
 FLAG_DRY_RUN=false
 FLAG_KEYS=false
 
+# Re-run mode: "fresh" | "update_keys" | "restart_only" | "" (first install)
+RERUN_MODE=""
+
 # Track auto-fixes applied
 FIXES_APPLIED=()
 
@@ -957,52 +960,104 @@ check_port_available() {
   fi
 }
 
+show_rerun_menu() {
+  echo ""
+  echo -e "  ${BOLD}OpenClaw is already installed. What would you like to do?${RESET}"
+  echo ""
+  echo -e "    ${CYAN}1${RESET}) ${BOLD}Fresh install${RESET}      — wipe everything (containers, data, keys) and start over"
+  echo -e "    ${CYAN}2${RESET}) ${BOLD}Update API keys${RESET}   — keep Docker, just change your provider keys"
+  echo -e "    ${CYAN}3${RESET}) ${BOLD}Restart${RESET}           — keep everything as-is and restart the container"
+  echo ""
+  local choice=""
+  while [[ -z "$choice" ]]; do
+    read -rp "  Choose [1/2/3]: " choice
+    case "$choice" in
+      1) RERUN_MODE="fresh" ;;
+      2) RERUN_MODE="update_keys" ;;
+      3) RERUN_MODE="restart_only" ;;
+      *) choice=""; warn "Please enter 1, 2, or 3" ;;
+    esac
+  done
+}
+
 check_existing_container() {
   # Check for stale/crashed containers with the same name
   local container_state
   container_state="$(docker inspect --format='{{.State.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo 'none')"
 
+  # --keys flag: skip the re-run menu, just stop the container for key re-entry
+  if [[ "$FLAG_KEYS" == true ]]; then
+    if [[ "$container_state" == "running" ]]; then
+      fix "Stopping container for key update..."
+      compose_cmd down >> "$LOG_FILE" 2>&1 || true
+    fi
+    RERUN_MODE="update_keys"
+    return 0
+  fi
+
   case "$container_state" in
     running)
-      # Check if the container is healthy and working as expected
       local health
       health="$(docker inspect --format='{{.State.Health.Status}}' "$CONTAINER_NAME" 2>/dev/null || echo 'unknown')"
+
+      echo ""
       if [[ "$health" == "healthy" ]]; then
-        echo ""
         echo -e "  ${BOLD}${GREEN}OpenClaw is already running and healthy!${RESET}"
-        echo ""
-        # Show the dashboard URL
-        local token
-        token="$(grep '^OPENCLAW_GATEWAY_TOKEN=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- || true)"
-        if [[ -n "$token" ]]; then
-          echo -e "  ${BOLD}Dashboard:${RESET}"
-          echo -e "    ${CYAN}${UNDERLINE}http://localhost:${GATEWAY_PORT}/#token=${token}${RESET}"
-        else
-          echo -e "  ${BOLD}Dashboard:${RESET}"
-          echo -e "    ${CYAN}${UNDERLINE}http://localhost:${GATEWAY_PORT}${RESET}"
-        fi
-        echo ""
-        echo -e "  ${DIM}Useful commands:${RESET}"
-        echo -e "    ${CYAN}./docker-install.sh --status${RESET}      Check status"
-        echo -e "    ${CYAN}./docker-install.sh --doctor${RESET}      Diagnose problems"
-        echo -e "    ${CYAN}./docker-install.sh --stop${RESET}        Stop the agent"
-        echo ""
-        exit 0
-      fi
-      warn "OpenClaw is already running"
-      if prompt_yn "Restart with fresh configuration?" "y"; then
-        fix "Stopping existing container..."
-        compose_cmd down >> "$LOG_FILE" 2>&1 || true
-        success "Existing container stopped"
       else
-        info "Keeping existing container. Run ${BOLD}--status${RESET} to check it."
-        exit 0
+        echo -e "  ${BOLD}${YELLOW}OpenClaw is running (health: ${health})${RESET}"
       fi
+
+      # Show the dashboard URL for context
+      local token
+      token="$(grep '^OPENCLAW_GATEWAY_TOKEN=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- || true)"
+      if [[ -n "$token" ]]; then
+        echo -e "  ${DIM}Dashboard: http://localhost:${GATEWAY_PORT}/#token=${token}${RESET}"
+      fi
+
+      show_rerun_menu
+
+      case "$RERUN_MODE" in
+        fresh)
+          fix "Wiping existing installation..."
+          compose_cmd down -v >> "$LOG_FILE" 2>&1 || true
+          docker rmi "$(docker images --format '{{.ID}}' --filter "reference=*openclaw*" 2>/dev/null)" >> "$LOG_FILE" 2>&1 || true
+          if [[ -f "$ENV_FILE" ]]; then
+            rm -f "$ENV_FILE"
+          fi
+          success "Previous installation wiped — starting fresh"
+          ;;
+        update_keys)
+          fix "Stopping container for key update..."
+          compose_cmd down >> "$LOG_FILE" 2>&1 || true
+          success "Container stopped — let's update your keys"
+          ;;
+        restart_only)
+          fix "Restarting container..."
+          compose_cmd restart >> "$LOG_FILE" 2>&1
+          echo ""
+          success "Container restarted"
+          if [[ -n "$token" ]]; then
+            echo ""
+            echo -e "  ${BOLD}Dashboard:${RESET}"
+            echo -e "    ${CYAN}${UNDERLINE}http://localhost:${GATEWAY_PORT}/#token=${token}${RESET}"
+          fi
+          exit 0
+          ;;
+      esac
       ;;
     exited|dead)
       fix "Removing crashed/stopped container from a previous run..."
       docker rm -f "$CONTAINER_NAME" >> "$LOG_FILE" 2>&1 || true
       success "Stale container cleaned up"
+      # Check if .env exists — offer the menu
+      if [[ -f "$ENV_FILE" ]] && env_has_any_provider_key "$ENV_FILE"; then
+        show_rerun_menu
+        if [[ "$RERUN_MODE" == "fresh" ]]; then
+          docker volume rm openclaw-data >> "$LOG_FILE" 2>&1 || true
+          rm -f "$ENV_FILE"
+          success "Previous configuration wiped"
+        fi
+      fi
       ;;
     created)
       fix "Removing container that was created but never started..."
@@ -1010,7 +1065,19 @@ check_existing_container() {
       success "Orphaned container cleaned up"
       ;;
     none)
-      verbose "No existing container found"
+      # No container — but check if there's a previous .env
+      if [[ -f "$ENV_FILE" ]] && env_has_any_provider_key "$ENV_FILE"; then
+        echo ""
+        echo -e "  ${BOLD}${YELLOW}Previous OpenClaw configuration found${RESET}"
+        show_rerun_menu
+        if [[ "$RERUN_MODE" == "fresh" ]]; then
+          docker volume rm openclaw-data >> "$LOG_FILE" 2>&1 || true
+          rm -f "$ENV_FILE"
+          success "Previous configuration wiped"
+        fi
+      else
+        verbose "No existing container found"
+      fi
       ;;
   esac
 
@@ -1137,9 +1204,9 @@ configure_keys() {
       log "Added OPENCLAW_GATEWAY_TOKEN to existing .env"
     fi
 
-    # --keys flag: skip the prompt and go straight to key entry
-    if [[ "$FLAG_KEYS" == true ]]; then
-      info "Re-entering API keys (--keys flag)"
+    # --keys flag or re-run menu "update keys": skip the prompt, go straight to key entry
+    if [[ "$FLAG_KEYS" == true ]] || [[ "$RERUN_MODE" == "update_keys" ]]; then
+      info "Let's update your API keys"
     elif prompt_yn "Want to update your API keys?" "n"; then
       : # fall through to prompts
     else
@@ -2967,10 +3034,24 @@ main() {
   fi
 
   preflight_checks       # Phase 1: Docker + auto-troubleshoot 15+ issues
-  configure_keys         # Phase 2: API keys with validation + retry
-  build_and_start        # Phase 3: Build with 3-attempt retry + crash diagnosis
-  harden_and_verify      # Phase 4: Security hardening + auto-fix
-  verify_and_finish      # Phase 5: 10-point security scorecard
+                         # (also sets RERUN_MODE via check_existing_container)
+
+  case "$RERUN_MODE" in
+    update_keys)
+      # User chose "Update API keys" — re-enter keys, rebuild, verify
+      configure_keys
+      build_and_start
+      harden_and_verify
+      verify_and_finish
+      ;;
+    fresh|"")
+      # Fresh install or first-time — run the full flow
+      configure_keys
+      build_and_start
+      harden_and_verify
+      verify_and_finish
+      ;;
+  esac
 }
 
 main "$@"
