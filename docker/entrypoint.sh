@@ -217,6 +217,30 @@ if [ -n "$DEFAULT_PROVIDER" ]; then
 fi
 
 # ============================================================================
+# CHECK 3: Set primary model (dynamic detection or explicit override)
+# ============================================================================
+# Without an explicit primary model in the config, OpenClaw falls back to its
+# built-in default (Anthropic). If the user doesn't have an Anthropic key,
+# this causes: "No API key found for provider anthropic"
+#
+# Fix: detect which provider key is present and write the matching model
+# into the config. OPENCLAW_PRIMARY_MODEL env var overrides auto-detection.
+# ============================================================================
+
+if [ -n "${OPENCLAW_PRIMARY_MODEL:-}" ]; then
+  PRIMARY_MODEL="$OPENCLAW_PRIMARY_MODEL"
+  echo "  ✓ Primary model override: ${PRIMARY_MODEL} (from OPENCLAW_PRIMARY_MODEL)"
+elif [ -n "$DEFAULT_MODEL" ]; then
+  PRIMARY_MODEL="${DEFAULT_PROVIDER}/${DEFAULT_MODEL}"
+  echo "  ✓ Primary model auto-detected: ${PRIMARY_MODEL}"
+else
+  PRIMARY_MODEL=""
+  echo "  ⚠ No primary model detected (no provider keys found)"
+fi
+
+export OPENCLAW_RESOLVED_PRIMARY_MODEL="${PRIMARY_MODEL}"
+
+# ============================================================================
 # CHECK 4: Config directory and permissions
 # ============================================================================
 
@@ -292,11 +316,11 @@ if [ ! -f "$CONFIG_FILE" ]; then
     exit 1
   fi
 
-  # Write config
+  # Write config — include primary model so OpenClaw doesn't fall back to Anthropic
   cat > "$CONFIG_FILE" <<EOF
 {
   "meta": {
-    "lastTouchedVersion": "docker-installer-v3",
+    "lastTouchedVersion": "docker-installer-v4",
     "lastTouchedAt": "$(date -u +%Y-%m-%dT%H:%M:%S.000Z)"
   },
   "gateway": {
@@ -309,6 +333,13 @@ if [ ! -f "$CONFIG_FILE" ]; then
     "auth": {
       "mode": "token",
       "token": "${GATEWAY_TOKEN}"
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "${PRIMARY_MODEL}"
+      }
     }
   },
   "tools": {
@@ -370,6 +401,23 @@ else
   fi
 
   echo "  ✓ Gateway config loaded and validated"
+
+  # ── Update primary model in existing config ──
+  # Always sync the primary model so it matches the current provider keys.
+  # This prevents stale Anthropic defaults when the user switches providers.
+  if command -v jq >/dev/null 2>&1 && [ -n "${PRIMARY_MODEL}" ]; then
+    CURRENT_MODEL="$(jq -r '.agents.defaults.model.primary // ""' "$CONFIG_FILE" 2>/dev/null)"
+    if [ "$CURRENT_MODEL" != "$PRIMARY_MODEL" ]; then
+      TMP="$(mktemp)"
+      jq --arg m "$PRIMARY_MODEL" '.agents.defaults.model.primary = $m' "$CONFIG_FILE" > "$TMP" && mv "$TMP" "$CONFIG_FILE"
+      chmod 600 "$CONFIG_FILE"
+      if [ -n "$CURRENT_MODEL" ] && [ "$CURRENT_MODEL" != "" ]; then
+        echo "  ✓ Primary model updated: ${CURRENT_MODEL} → ${PRIMARY_MODEL}"
+      else
+        echo "  ✓ Primary model set: ${PRIMARY_MODEL}"
+      fi
+    fi
+  fi
 
   # Migrate legacy config keys (e.g., bind "0.0.0.0" → "lan")
   # Required since openclaw v2026.2.26
